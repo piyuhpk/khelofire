@@ -29,10 +29,29 @@ jobs:
         run: npm run build
 
       - name: Sync Capacitor (user)
-        run: npx cap sync android
+        run: |
+          set +e
+          out=$(npx cap sync android 2>&1)
+          code=$?
+          echo "$out"
+          if [ "$code" -ne 0 ]; then
+            { echo "### cap sync (user) failed (exit $code)"; echo '```'; echo "$out"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            echo "$out" | tail -25 | tr '\n' '|' | sed 's/^/::error::CAPSYNC-USER: /'
+            exit "$code"
+          fi
 
       - name: Build user APK
-        run: cd android && chmod +x gradlew && ./gradlew assembleDebug --no-daemon
+        run: |
+          set +e
+          cd android && chmod +x gradlew
+          out=$(./gradlew assembleDebug --no-daemon 2>&1)
+          code=$?
+          echo "$out"
+          if [ "$code" -ne 0 ]; then
+            { echo "### gradle (user) failed (exit $code)"; echo '```'; echo "$out" | tail -200; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            echo "$out" | tail -25 | tr '\n' '|' | sed 's/^/::error::GRADLE-USER: /'
+            exit "$code"
+          fi
 
       - name: Rename user APK
         run: mv android/app/build/outputs/apk/debug/app-debug.apk KheloFire-user.apk
@@ -42,7 +61,16 @@ jobs:
         run: VITE_ADMIN_BUILD=true npm run build
 
       - name: Sync Capacitor (admin)
-        run: npx cap sync android
+        run: |
+          set +e
+          out=$(npx cap sync android 2>&1)
+          code=$?
+          echo "$out"
+          if [ "$code" -ne 0 ]; then
+            { echo "### cap sync (admin) failed (exit $code)"; echo '```'; echo "$out"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            echo "$out" | tail -25 | tr '\n' '|' | sed 's/^/::error::CAPSYNC-ADMIN: /'
+            exit "$code"
+          fi
 
       - name: Rebrand to KheloFire Admin (launcher name + separate package id)
         run: |
@@ -50,7 +78,17 @@ jobs:
           sed -i 's|applicationId "[^"]*"|applicationId "com.khelofire.app.admin"|' android/app/build.gradle
 
       - name: Build admin APK
-        run: cd android && ./gradlew assembleDebug --no-daemon
+        run: |
+          set +e
+          cd android
+          out=$(./gradlew assembleDebug --no-daemon 2>&1)
+          code=$?
+          echo "$out"
+          if [ "$code" -ne 0 ]; then
+            { echo "### gradle (admin) failed (exit $code)"; echo '```'; echo "$out" | tail -200; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+            echo "$out" | tail -25 | tr '\n' '|' | sed 's/^/::error::GRADLE-ADMIN: /'
+            exit "$code"
+          fi
 
       - name: Rename admin APK
         run: mv android/app/build/outputs/apk/debug/app-debug.apk KheloFire-admin.apk
