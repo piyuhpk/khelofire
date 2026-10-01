@@ -78,7 +78,7 @@ export function Sheet({ open, onClose, children }: { open: boolean; onClose?: ()
   if (!open) return null
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center animate-fade-in"
-      style={{ background: 'rgba(4,6,14,.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)' }} onClick={onClose}>
+      style={{ background: 'rgba(4,6,14,.72)', backdropFilter: 'blur(6px)', WebkitBackdropFilter: 'blur(6px)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }} onClick={onClose}>
       <div className="w-full max-w-[460px] rounded-t-sheet p-5 pb-8 animate-sheet-up shadow-elevated"
         style={{ background: 'var(--surface)', borderTop: '1px solid var(--glass-brd)' }} onClick={(e) => e.stopPropagation()}>
         <div className="mx-auto mb-4 h-1.5 w-10 rounded-full" style={{ background: 'var(--line)' }} />
@@ -130,7 +130,8 @@ export function ToastProvider({ children }: { children: ReactNode }) {
   return (
     <ToastCtx.Provider value={push}>
       {children}
-      <div className="fixed left-1/2 top-4 z-[60] flex -translate-x-1/2 flex-col gap-2 w-[90%] max-w-[420px]">
+      <div className="fixed left-1/2 top-4 z-[60] flex -translate-x-1/2 flex-col gap-2 w-[90%] max-w-[420px]"
+        style={{ top: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}>
         {toasts.map((t) => {
           const Icon = TOAST_ICON[t.kind]
           return (

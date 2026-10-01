@@ -143,7 +143,7 @@ export default function Admin() {
   }
 
   return (
-    <div className="p-4 pb-8">
+    <div className="p-4 pb-8" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 16px)', paddingBottom: 'calc(env(safe-area-inset-bottom, 0px) + 32px)' }}>
       <div className="mb-3 flex items-center gap-2.5">
         <button onClick={() => nav(-1)} className="grid h-9 w-9 place-items-center rounded-full active:scale-90 transition" style={{ background: 'var(--glass)', border: '1px solid var(--glass-brd)' }}>
           <ChevronLeft className="h-5 w-5" />

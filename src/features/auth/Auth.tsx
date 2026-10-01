@@ -53,7 +53,7 @@ export default function Auth() {
   return (
     <div className="app-frame flex min-h-[100dvh] flex-col justify-center px-6 py-10"
       style={{ background: 'radial-gradient(120% 70% at 50% -10%,#3A1D6E 0%,#1A0E3A 55%,#08060F 100%)' }}>
-      <button onClick={toggleLang} className="absolute right-4 top-4 chip text-white" style={{ background: 'rgba(255,255,255,.12)', border: '1px solid rgba(255,255,255,.18)' }}>{lang === 'bn' ? 'বাং' : 'EN'}</button>
+      <button onClick={toggleLang} className="absolute right-4 top-4 chip text-white" style={{ background: 'rgba(255,255,255,.12)', border: '1px solid rgba(255,255,255,.18)', top: 'calc(env(safe-area-inset-top, 0px) + 16px)' }}>{lang === 'bn' ? 'বাং' : 'EN'}</button>
       <div className="mb-8 text-center text-white">
         <span className="mx-auto mb-3 grid h-16 w-16 place-items-center overflow-hidden rounded-2xl" style={{ border: '1px solid rgba(255,255,255,.2)', boxShadow: 'var(--glow)' }}>
           <img src="/logo.jpg" alt="KheloFire" className="h-full w-full object-cover" />

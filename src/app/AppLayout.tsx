@@ -41,7 +41,7 @@ export function AppHeader() {
 
   return (
     <header className="sticky top-0 z-30 flex items-center gap-1.5 px-3 py-2.5"
-      style={{ background: 'color-mix(in srgb, var(--bg) 70%, transparent)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', borderBottom: '1px solid var(--line)' }}>
+      style={{ background: 'color-mix(in srgb, var(--bg) 70%, transparent)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', borderBottom: '1px solid var(--line)', paddingTop: 'calc(env(safe-area-inset-top, 0px) + 10px)' }}>
       <button 
         onClick={() => nav('/')} 
         onMouseDown={handleLogoMouseDown}
@@ -90,7 +90,7 @@ export function BottomNav() {
   const { pathname } = useLocation()
   return (
     <nav className="sticky bottom-0 z-30 grid grid-cols-4"
-      style={{ background: 'color-mix(in srgb, var(--bg) 78%, transparent)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', borderTop: '1px solid var(--line)' }}>
+      style={{ background: 'color-mix(in srgb, var(--bg) 78%, transparent)', backdropFilter: 'blur(16px)', WebkitBackdropFilter: 'blur(16px)', borderTop: '1px solid var(--line)', paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}>
       {tabs.map(({ to, key, Icon }) => {
         const active = pathname === to
         return (
