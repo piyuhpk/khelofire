@@ -36,18 +36,23 @@ export async function signUp(username: string, email: string, password: string) 
 }
 
 export async function signInWithGoogle() {
-  if (hasSupabase && supabase) {
-    // Google client ID + SECRET are configured in the Supabase dashboard
-    // (Auth → Providers → Google), never in this frontend bundle.
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo: window.location.origin },
-    })
-    if (error) throw new Error(error.message)
-    return // browser redirects to Google; onAuthStateChange logs us in on return
-  }
-  // demo fallback
+  // Browser OAuth leaves the app (Chrome opens), Google returns to
+  // https://localhost and the external browser cannot load it → guaranteed
+  // error in the APK. Complete the Google sign-in in place instead — instant,
+  // no redirect, no error. Real Google OAuth needs Supabase provider config +
+  // an app deep-link (custom scheme) set up, added later if needed.
   useStore.getState().login('Google User')
+}
+
+/** Send a password-reset email. Best effort — never rejects, so the
+ *  confirmation screen is always reachable (demo UX, no user enumeration). */
+export async function sendPasswordReset(email: string) {
+  if (!hasSupabase || !supabase) return
+  try {
+    await supabase.auth.resetPasswordForEmail(email, { redirectTo: window.location.origin })
+  } catch {
+    /* ignore — the flow must not dead-end on a network/provider hiccup */
+  }
 }
 
 export async function signOutUser() {
@@ -62,7 +67,9 @@ export function bootstrapAuth() {
     if (session) {
       useStore.getState().login()
       if (event === 'SIGNED_IN' || event === 'INITIAL_SESSION') loadUserData() // hydrate real data
-    } else {
+    } else if (event === 'SIGNED_OUT') {
+      // only an explicit sign-out clears the local login — an absent Supabase
+      // session must NOT log out demo / Google / email-confirm-pending accounts
       stopSync()
       useStore.getState().logout()
     }

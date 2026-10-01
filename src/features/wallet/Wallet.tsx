@@ -38,20 +38,19 @@ export default function Wallet() {
   const payNumber = (merchantId && method === 'bKash' ? merchantId : '') || PAY_NUMBERS[method] || PAY_NUMBERS.bKash
   const valid = Number(amt) > 0
   const [checkout, setCheckout] = useState(false)
-  const [payStep, setPayStep] = useState<'pay' | 'otp' | 'done'>('pay')
-  const [otp, setOtp] = useState('')
+  const [payStep, setPayStep] = useState<'pay' | 'done'>('pay')
   const mStyle = METHOD_STYLE[method] || METHOD_STYLE.bKash
 
   const submit = () => {
     const n = Number(amt)
     if (!n || n <= 0) return toast(t('wallet.amount') + ' ' + t('error.generic'), 'err')
-    if (tab === 'add') { setPayStep('pay'); setOtp(''); setCheckout(true); return }
+    if (tab === 'add') { setPayStep('pay'); setCheckout(true); return }
     if (n * 100 < minWithdrawMinor) return toast(`${t('wallet.minWithdraw')} ৳${Math.round(minWithdrawMinor / 100)}`, 'err')
     withdraw(n, method) ? toast(`${t('wallet.pending')} · ${method}`, 'ok') : toast(t('match.insufficient'), 'err')
     setAmt('')
   }
-  const verifyOtp = () => {
-    if (otp.length < 4) return toast(t('wallet.demoOtp'), 'err')
+  // Pay Now → deposit REQUEST (pending) — admin panel approves, then credited
+  const payNow = () => {
     if (!addMoney(Number(amt), method)) { setCheckout(false); return toast(t('error.generic'), 'err') }
     setPayStep('done')
     setTimeout(() => { setCheckout(false); setAmt(''); toast(`${t('wallet.paySuccess')} · ${method} ✓`, 'ok') }, 1600)
@@ -171,22 +170,9 @@ export default function Wallet() {
               </div>
               <div className="flex gap-2">
                 <button onClick={() => setCheckout(false)} className="btn-ghost flex-1 py-2.5 text-sm">{t('common.cancel')}</button>
-                <button onClick={() => setPayStep('otp')} className="flex-1 rounded-pill py-2.5 text-sm font-extrabold text-white" style={{ background: mStyle }}>{t('wallet.payNow')} ৳{amt}</button>
+                <button onClick={payNow} className="flex-1 rounded-pill py-2.5 text-sm font-extrabold text-white" style={{ background: mStyle }}>{t('wallet.payNow')} ৳{amt}</button>
               </div>
-              <p className="text-[10px] leading-snug text-muted">{t('wallet.demoCheckout')}</p>
-            </div>
-          )}
-
-          {payStep === 'otp' && (
-            <div className="space-y-3 p-4 text-center">
-              <p className="text-sm font-bold">{t('wallet.otpSent')} <span className="tnum">{payNumber}</span></p>
-              <input inputMode="numeric" maxLength={4} value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))} placeholder="••••" autoFocus
-                className="input tnum text-center text-2xl font-extrabold tracking-[0.45em]" />
-              <p className="text-[11px] text-muted">{t('wallet.demoOtp')}</p>
-              <div className="flex gap-2">
-                <button onClick={() => setPayStep('pay')} className="btn-ghost flex-1 py-2.5 text-sm">{t('common.back')}</button>
-                <button onClick={verifyOtp} disabled={otp.length < 4} className="flex-1 rounded-pill py-2.5 text-sm font-extrabold text-white disabled:opacity-45" style={{ background: mStyle }}>{t('wallet.verify')}</button>
-              </div>
+              <p className="text-[10px] leading-snug text-muted">{t('wallet.depositNote')}</p>
             </div>
           )}
 
