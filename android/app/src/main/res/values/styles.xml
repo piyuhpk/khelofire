@@ -13,10 +13,14 @@
         <item name="windowActionBar">false</item>
         <item name="windowNoTitle">true</item>
         <item name="android:background">@null</item>
+        <!-- full-screen: hide status bar (clock/battery/notifs) like a game -->
+        <item name="android:windowFullscreen">true</item>
     </style>
 
 
     <style name="AppTheme.NoActionBarLaunch" parent="Theme.SplashScreen">
         <item name="android:background">@drawable/splash</item>
+        <!-- hide the status bar already during the splash screen -->
+        <item name="android:windowFullscreen">true</item>
     </style>
 </resources>

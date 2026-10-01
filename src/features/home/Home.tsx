@@ -41,8 +41,12 @@ function Hero() {
   const toast = useToast()
   const referralCode = useStore((s) => s.referralCode)
   const [i, setI] = useState(0)
-  // admin-managed banners (Admin → Banners) show FIRST, then the built-in ones
-  const adminBanners = useStore((s) => s.banners.filter((b) => b.active))
+  // admin-managed banners (Admin → Banners) show FIRST, then the built-in ones.
+  // NOTE: selector must return the raw array (zustand v5 has no memoization —
+  // a .filter() inside the selector returns a NEW array every call and causes
+  // an infinite re-render / React error #185). Filter after selecting instead.
+  const allBanners = useStore((s) => s.banners)
+  const adminBanners = allBanners.filter((b) => b.active)
   const slides: any[] = adminBanners.length
     ? [
         ...adminBanners.map((b) => ({
