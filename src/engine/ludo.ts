@@ -1,0 +1,115 @@
+// Ludo King–style engine. Supports 2 players (You vs Bot, opposite corners) or
+// 4 players (You + 3 bots). Client-side, rule-correct, single-device.
+//
+// Token position model (per token):
+//   0        = in base (yard)
+//   1..51    = steps along the shared 52-cell ring (relative to that player's start)
+//   52..56   = the 5-cell home column
+//   57       = finished (reached center)
+export type PlayerId = 0 | 1 | 2 | 3
+
+// Ludo King layout: Red top-left, Green top-right, Yellow bottom-right, Blue bottom-left.
+// Exact Ludo King palette.
+export const COLORS: Record<PlayerId, string> = { 0: '#ED1C24', 1: '#00A651', 2: '#FFC91F', 3: '#00AEEF' }
+export const COLOR_NAME: Record<PlayerId, string> = { 0: 'Red', 1: 'Green', 2: 'Yellow', 3: 'Blue' }
+
+// each player's entry point on the 52-ring (clockwise, 13 apart)
+export const START_OFFSET: Record<PlayerId, number> = { 0: 0, 1: 13, 2: 26, 3: 39 }
+// safe cells: the four coloured start squares + the four star squares
+export const SAFE_ABS = new Set([0, 8, 13, 21, 26, 34, 39, 47])
+
+export interface LudoState {
+  tokens: number[][]     // [4][4] positions (only `players` are in play)
+  players: PlayerId[]    // active players this match
+  turn: PlayerId
+  dice: number | null
+  rolled: boolean
+  sixes: number          // consecutive sixes in the current turn (3 = forfeit)
+  winner: PlayerId | null
+}
+
+export const initLudo = (num = 2): LudoState => ({
+  tokens: [[0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]],
+  players: num >= 4 ? [0, 1, 2, 3] : [0, 2], // 1v1 = opposite corners (Red vs Yellow)
+  turn: 0, dice: null, rolled: false, sixes: 0, winner: null,
+})
+
+export const ringAbs = (p: PlayerId, pos: number): number | null =>
+  pos < 1 || pos > 51 ? null : (START_OFFSET[p] + (pos - 1)) % 52
+
+export const rollDice = () => 1 + Math.floor(Math.random() * 6)
+
+/** next active player after `p`, following the fixed seating order */
+export function nextActive(s: LudoState, p: PlayerId): PlayerId {
+  const order = s.players
+  const idx = order.indexOf(p)
+  return order[(idx + 1) % order.length]
+}
+
+/** tokens `p` may legally move with this dice value */
+export function legalTokens(s: LudoState, p: PlayerId, dice: number): number[] {
+  const out: number[] = []
+  s.tokens[p].forEach((pos, i) => {
+    if (pos === 0) { if (dice === 6) out.push(i) }
+    else if (pos === 57) { /* already home */ }
+    else if (pos + dice <= 57) out.push(i)
+  })
+  return out
+}
+
+export interface MoveResult { state: LudoState; captured: boolean; reachedHome: boolean; extraTurn: boolean }
+
+export function applyMove(s: LudoState, p: PlayerId, tokenIdx: number, dice: number): MoveResult {
+  const tokens = s.tokens.map((a) => [...a])
+  let pos = tokens[p][tokenIdx]
+  pos = pos === 0 ? 1 : pos + dice
+  tokens[p][tokenIdx] = pos
+
+  // capture: any opponent token sharing this ring cell (unless it's a safe cell) goes home
+  let captured = false
+  const abs = ringAbs(p, pos)
+  if (abs !== null && !SAFE_ABS.has(abs)) {
+    for (const opp of s.players) {
+      if (opp === p) continue
+      tokens[opp].forEach((oPos, oi) => {
+        if (ringAbs(opp, oPos) === abs) { tokens[opp][oi] = 0; captured = true }
+      })
+    }
+  }
+
+  const reachedHome = pos === 57
+  const playerDone = tokens[p].every((t) => t === 57)
+  const extraTurn = dice === 6 || captured || reachedHome
+  const winner = playerDone ? p : null // first player to bring all four home wins the match
+  return {
+    state: {
+      ...s,
+      tokens,
+      dice: null,
+      rolled: false,
+      sixes: extraTurn ? s.sixes : 0,
+      winner,
+      turn: winner ? p : extraTurn ? p : nextActive(s, p),
+    },
+    captured, reachedHome, extraTurn,
+  }
+}
+
+/** Bot heuristic: capture > finish a token > open from base on a 6 > advance the leader. */
+export function botChoose(s: LudoState, p: PlayerId, dice: number): number | null {
+  const legal = legalTokens(s, p, dice)
+  if (!legal.length) return null
+  // capture
+  for (const i of legal) {
+    const np = s.tokens[p][i] === 0 ? 1 : s.tokens[p][i] + dice
+    const abs = ringAbs(p, np)
+    if (abs !== null && !SAFE_ABS.has(abs) && s.players.some((o) => o !== p && s.tokens[o].some((t) => ringAbs(o, t) === abs))) return i
+  }
+  // finish
+  for (const i of legal) if ((s.tokens[p][i] === 0 ? 1 : s.tokens[p][i] + dice) === 57) return i
+  // open from base
+  const fromBase = legal.find((i) => s.tokens[p][i] === 0)
+  if (dice === 6 && fromBase !== undefined) return fromBase
+  // advance the most-progressed token
+  return legal.reduce((a, b) => (s.tokens[p][b] > s.tokens[p][a] ? b : a), legal[0])
+}

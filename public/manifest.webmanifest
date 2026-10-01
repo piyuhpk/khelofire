@@ -1,0 +1,16 @@
+{
+  "name": "KheloFire — Ludo, Chess & 16 Guti",
+  "short_name": "KheloFire",
+  "description": "Bengali competitive gaming tournaments — Ludo, Chess, 16 Guti & Dice.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#08060F",
+  "theme_color": "#08060F",
+  "icons": [
+    { "src": "/logo.jpg", "sizes": "192x192", "type": "image/jpeg", "purpose": "any" },
+    { "src": "/logo.jpg", "sizes": "512x512", "type": "image/jpeg", "purpose": "any" },
+    { "src": "/logo.jpg", "sizes": "512x512", "type": "image/jpeg", "purpose": "maskable" }
+  ]
+}

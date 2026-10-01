@@ -1,0 +1,139 @@
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Hind+Siliguri:wght@400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* matte-black base with a deep-purple tint */
+  --bg: #08060F;
+  --bg-2: #100A20;
+  --surface: #150F28;
+  --surface-2: #1D1640;
+  --glass: rgba(150,120,255,.06);
+  --glass-brd: rgba(165,135,255,.15);
+  --text: #F3F0FF;
+  --muted: #9A92B8;
+  --line: rgba(165,135,255,.12);
+  /* electric purple / violet primary */
+  --primary: #8B5CFF;
+  --primary-2: #A876FF;
+  /* cyan / teal accent */
+  --cyan: #22D3EE;
+  --teal: #2DD4BF;
+  --gold: #FFD466;
+  --emerald: #1FCB8B;
+  --danger: #FF5C69;
+  /* signature gradients: electric purple + cyan/teal */
+  --grad: linear-gradient(135deg,#8B5CFF 0%,#6D28D9 100%);
+  --grad-cyan: linear-gradient(135deg,#22D3EE 0%,#7C5CFF 100%);
+  --grad-gold: linear-gradient(135deg,#FFE08A 0%,#F5A623 100%);
+  --grad-emerald: linear-gradient(135deg,#2DD4BF 0%,#12B981 100%);
+  --glow: 0 16px 44px -14px rgba(139,92,255,.6);
+  --glow-cyan: 0 16px 44px -14px rgba(34,211,238,.5);
+  --glow-gold: 0 14px 32px -12px rgba(245,166,35,.5);
+  --ease: cubic-bezier(.22,1,.36,1);
+}
+:root[data-theme='light'] {
+  --bg: #F3F1FC;
+  --bg-2: #E9E5FA;
+  --surface: #FFFFFF;
+  --surface-2: #F6F4FE;
+  --glass: rgba(255,255,255,.72);
+  --glass-brd: rgba(96,64,190,.14);
+  --text: #16112B;
+  --muted: #665F86;
+  --line: rgba(96,64,190,.12);
+  --glow: 0 16px 40px -16px rgba(139,92,255,.4);
+  --glow-cyan: 0 16px 40px -16px rgba(34,211,238,.35);
+}
+
+html, body, #root { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Hind Siliguri', 'Noto Sans Bengali', system-ui, sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  overflow-x: hidden;           /* never a horizontal glitch on any device */
+  overscroll-behavior-y: none;  /* no rubber-band flash on mobile */
+}
+* { box-sizing: border-box; min-width: 0; }  /* min-width:0 lets flex children truncate instead of overflowing */
+img, svg, video { max-width: 100%; }
+h1, h2, h3, h4 { font-family: 'Sora', 'Hind Siliguri', system-ui, sans-serif; letter-spacing: -.01em; }
+
+/* mobile app frame with ambient arena glow (purple + cyan on matte black) */
+.app-frame {
+  max-width: 460px;
+  margin: 0 auto;
+  min-height: 100dvh;
+  position: relative;
+  isolation: isolate;
+  background:
+    radial-gradient(120% 55% at 100% -8%, rgba(139,92,255,.26), transparent 60%),
+    radial-gradient(95% 48% at -12% 6%, rgba(34,211,238,.14), transparent 55%),
+    linear-gradient(180deg, var(--bg-2), var(--bg) 46%);
+}
+
+/* Raw keyframes used by hand-written classes (.stg, .skel). Defined here so they
+   always ship — Tailwind only emits keyframes for `animate-*` utilities it scans,
+   and these are referenced by raw CSS, so it would otherwise drop them. */
+@keyframes rise-in { 0% { transform: translateY(16px); opacity: 0 } 100% { transform: translateY(0); opacity: 1 } }
+@keyframes shimmer { 100% { transform: translateX(100%) } }
+
+@layer components {
+  /* liquid-glass buttons: bevelled top sheen + glow */
+  .btn { @apply relative inline-flex items-center justify-center gap-2 overflow-hidden font-semibold rounded-pill px-5 py-3 transition-transform active:scale-[.96] disabled:opacity-40 disabled:pointer-events-none select-none; }
+  .btn::before { content: ''; @apply pointer-events-none absolute inset-x-0 top-0; height: 52%; background: linear-gradient(180deg, rgba(255,255,255,.26), rgba(255,255,255,0)); }
+  .btn-primary { @apply btn text-white; background-image: var(--grad); box-shadow: var(--glow), inset 0 0 0 1px rgba(255,255,255,.10); }
+  .btn-cyan { @apply btn text-white; background-image: var(--grad-cyan); box-shadow: var(--glow-cyan), inset 0 0 0 1px rgba(255,255,255,.12); }
+  .btn-gold { @apply btn font-bold; color: #2A1D00; background-image: var(--grad-gold); box-shadow: var(--glow-gold), inset 0 0 0 1px rgba(255,255,255,.3); }
+  .btn-emerald { @apply btn text-white; background-image: var(--grad-emerald); box-shadow: 0 14px 34px -14px rgba(45,212,191,.5); }
+  .btn-success { @apply btn-emerald; }
+  .btn-navy { @apply btn text-white; background: rgba(255,255,255,.06); border: 1px solid var(--glass-brd); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+  .btn-danger { @apply btn text-white; background: linear-gradient(135deg,#FF7A84,#E23B49); box-shadow: 0 14px 34px -14px rgba(226,59,73,.5); }
+  .btn-ghost { @apply btn; color: var(--text); background: var(--glass); border: 1px solid var(--glass-brd); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); }
+
+  /* cards: glass + rounded + faint border glow */
+  .card { @apply relative rounded-card; background: var(--glass); border: 1px solid var(--glass-brd); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 12px 36px -20px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.05); }
+  .card-solid { @apply relative rounded-card; background: var(--surface); border: 1px solid var(--glass-brd); box-shadow: 0 20px 50px -24px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.05); }
+  .card-glow { box-shadow: var(--glow), inset 0 1px 0 rgba(255,255,255,.08); }
+  .glass { background: var(--glass); border: 1px solid var(--glass-brd); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); }
+
+  .chip { @apply inline-flex items-center gap-1 rounded-pill px-3 py-1 text-sm font-semibold; }
+  .pill { @apply inline-flex items-center gap-1.5 rounded-pill px-3 py-1.5 text-xs font-bold; background: var(--glass); border: 1px solid var(--glass-brd); color: var(--text); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+  .sect-title { @apply font-display text-base font-extrabold; color: var(--text); }
+
+  .input { @apply w-full rounded-2xl px-4 py-3 outline-none transition; background: rgba(150,120,255,.06); border: 1px solid var(--glass-brd); color: var(--text); }
+  .input::placeholder { color: var(--muted); }
+  .input:focus { border-color: var(--primary); box-shadow: 0 0 0 3px rgba(139,92,255,.25); }
+  .label { @apply text-xs font-semibold mb-1.5 block; color: var(--muted); }
+
+  .skel { @apply relative overflow-hidden rounded-2xl; background: rgba(150,120,255,.08); }
+  .skel::after { content: ''; @apply absolute inset-0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, rgba(255,255,255,.09), transparent); animation: shimmer 1.4s infinite; }
+}
+@layer utilities {
+  .no-scrollbar::-webkit-scrollbar { display: none; }
+  .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+  .tnum { font-variant-numeric: tabular-nums; }
+  .text-grad { background-image: var(--grad); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+  .text-grad-cyan { background-image: var(--grad-cyan); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+  .text-grad-gold { background-image: var(--grad-gold); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; color: transparent; }
+  .divider { height: 1px; background: var(--line); }
+  /* sunburst rays behind game-tile art */
+  .rays { position: relative; }
+  .rays::before { content: ''; position: absolute; inset: -60%; background: repeating-conic-gradient(from 0deg at 50% 42%, rgba(255,255,255,.11) 0deg 5deg, transparent 5deg 12deg); pointer-events: none; opacity: .55; }
+  .stg > * { opacity: 0; animation: rise-in .5s cubic-bezier(.22,1,.36,1) forwards; }
+  .stg > *:nth-child(1) { animation-delay: .03s }
+  .stg > *:nth-child(2) { animation-delay: .08s }
+  .stg > *:nth-child(3) { animation-delay: .13s }
+  .stg > *:nth-child(4) { animation-delay: .18s }
+  .stg > *:nth-child(5) { animation-delay: .23s }
+  .stg > *:nth-child(6) { animation-delay: .28s }
+  .stg > *:nth-child(7) { animation-delay: .33s }
+  .stg > *:nth-child(8) { animation-delay: .38s }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, .stg > * { animation: none !important; transition: none !important; opacity: 1 !important; }
+}
