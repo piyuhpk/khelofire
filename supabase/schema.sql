@@ -209,6 +209,11 @@ begin
   return new;
 end; $$;
 
+-- The trigger fires this as its owner, so nobody needs to call it directly. Leaving
+-- EXECUTE open would let any signed-in player invoke a SECURITY DEFINER function
+-- that writes to profiles and mint themselves a row for an arbitrary user id.
+revoke all on function public.handle_new_user() from public, anon, authenticated;
+
 drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
