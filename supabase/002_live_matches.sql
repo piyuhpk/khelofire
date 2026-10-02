@@ -76,6 +76,15 @@ create index if not exists live_match_seats_user_idx on public.live_match_seats 
 create unique index if not exists live_match_seats_one_user
   on public.live_match_seats (match_id, user_id);  -- one seat per player per match
 
+-- settlements.match_id is the idempotency key, and for a live match it is a
+-- deterministic md5(match:user) hash rather than the match's own id. That is what
+-- makes a retried settle collide on the primary key instead of paying twice, but
+-- it also means the row alone can no longer be traced back to the table it paid
+-- out. This column keeps that link.
+alter table public.settlements
+  add column if not exists live_match_id uuid references public.live_matches(id) on delete set null;
+create index if not exists settlements_live_match_idx on public.settlements (live_match_id);
+
 -- ============ Row Level Security ============
 alter table public.live_matches     enable row level security;
 alter table public.live_match_seats enable row level security;
@@ -378,9 +387,9 @@ begin
   v_sid := md5(p_match_id::text || ':' || v_uid::text)::uuid;
 
   -- (2) claim the slot. if this conflicts we already settled this player.
-  insert into public.settlements (match_id, user_id, game, mode, outcome,
-                                  entry_minor, prize_minor, delta_minor)
-  values (v_sid, v_uid, v_match.game, v_match.mode, p_outcome,
+  insert into public.settlements (match_id, live_match_id, user_id, game, mode, outcome,
+                                entry_minor, prize_minor, delta_minor)
+  values (v_sid, p_match_id, v_uid, v_match.game, v_match.mode, p_outcome,
           v_entry, v_prize, v_delta)
   on conflict (match_id) do nothing;
 
