@@ -1,5 +1,5 @@
 import { initLudo, legalTokens, applyMove, rollDice, botChoose, nextActive, ringAbs, SAFE_ABS, START_OFFSET, FINISH, HOME_END, type LudoState, type PlayerId } from '../src/engine/ludo'
-import { cellFor, PATH, HOME_COL, CENTER } from '../src/engine/ludoBoard'
+import { cellFor, PATH, HOME_COL, CENTER, QUAD_AREA, BASE_SLOTS } from '../src/engine/ludoBoard'
 import { initialBoard, legalMoves, applyMove as gApply, captureContinuations, count, botTurn, type Cell } from '../src/features/guti/gutiEngine'
 
 let fails = 0
@@ -72,6 +72,118 @@ console.log('=== LUDO: capture does not hit safe cells ===')
   const res = applyMove(s, 0, 0, 6)
   console.log(`  moved red onto abs ${absTarget} (safe=${SAFE_ABS.has(absTarget)}), victim pos ${victim} -> ${res.state.tokens[1][0]}`)
   if (SAFE_ABS.has(absTarget) && res.state.tokens[1][0] === 0) bad('capture happened on a safe cell')
+}
+
+console.log('=== LUDO: every token renders inside the board, centred on a cell ===')
+{
+  // mirrors LudoBoard.tsx: token anchor = cell centre, finished tokens fanned
+  const FINISHED_SLOT: Record<number, [number, number]> = { 0: [-0.95, -0.95], 1: [0.95, -0.95], 2: [-0.95, 0.95], 3: [0.95, 0.95] }
+  let checked = 0
+  for (const num of [2, 4]) {
+    for (let g = 0; g < 400; g++) {
+      let s: LudoState = initLudo(num)
+      for (let step = 0; step < 300 && s.winner === null; step++) {
+        const p = s.turn
+        const d = rollDice()
+        const legal = legalTokens(s, p, d)
+        const choice = legal.length ? (p === 0 ? legal[Math.floor(Math.random() * legal.length)] : botChoose(s, p, d)!) : null
+        if (choice === null) { s = { ...s, dice: null, rolled: false, sixes: 0, turn: nextActive(s, p) }; continue }
+        s = applyMove(s, p, choice, d).state
+        for (const pl of s.players) {
+          s.tokens[pl].forEach((pos, i) => {
+            let [r, c] = cellFor(pl, pos, i)
+            if (pos >= FINISH) { r += FINISHED_SLOT[i][0]; c += FINISHED_SLOT[i][1] }
+            checked++
+            // half a token is the widest overhang allowed before it looks cut off
+            if (r < -0.6 || r > 15.6 || c < -0.6 || c > 15.6) bad(`token ${pl}-${i} at pos ${pos} renders off-board at (${r.toFixed(2)},${c.toFixed(2)})`)
+          })
+        }
+      }
+    }
+  }
+  console.log(`  ${checked} token placements checked, all within bounds`)
+}
+
+console.log('=== LUDO: yard slots sit on the centre of the drawn circle ===')
+for (const p of [0, 1, 2, 3] as PlayerId[]) {
+  const [r0, c0, r1, c1] = QUAD_AREA[p]
+  // the white plate is inset one cell and 4 cells wide inside the quad
+  const rows = [r0 + 1 + 1, r0 + 1 + 3] // quadrant centres, half-cell values
+  const cols = [c0 + 1 + 1, c0 + 1 + 3]
+  const got = BASE_SLOTS[p]
+  for (let k = 0; k < 4; k++) {
+    const [r, c] = got[k]
+    const dr = Math.min(Math.abs(r - rows[0]), Math.abs(r - rows[1]))
+    const dc = Math.min(Math.abs(c - cols[0]), Math.abs(c - cols[1]))
+    if (Math.abs(dr) > 1.01 || Math.abs(dc) > 1.01) bad(`player ${p} yard slot ${k} at (${r},${c}) is not on a drawn circle (expect r~${rows} c~${cols})`)
+  }
+  console.log(`  player ${p}: quad [${r0},${c0},${r1},${c1}] slots ${JSON.stringify(got)}`)
+}
+
+console.log('=== LUDO: bot must not park tokens in enemy dice range ===')
+{
+  let risky = 0, total = 0
+  for (let g = 0; g < 600; g++) {
+    let s: LudoState = initLudo(4)
+    for (let step = 0; step < 200 && s.winner === null; step++) {
+      const p = s.turn
+      if (p !== 0) {
+        const d = rollDice()
+        const legal = legalTokens(s, p, d)
+        const pick = legal.length ? botChoose(s, p, d)! : null
+        if (pick !== null) {
+          const pos = s.tokens[p][pick] === 0 ? 1 : s.tokens[p][pick] + d
+          const abs = ringAbs(p, pos)
+          if (abs !== null && !SAFE_ABS.has(abs)) {
+            let th = 0
+            for (const o of s.players) if (o !== p) for (const tk of s.tokens[o]) {
+              const oa = ringAbs(o, tk)
+              if (oa === null) continue
+              const dd = (abs - oa + 52) % 52
+              if (dd >= 1 && dd <= 6) th++
+            }
+            total++
+            if (th > 0) risky++
+          }
+        }
+        if (pick === null) { s = { ...s, dice: null, rolled: false, sixes: 0, turn: nextActive(s, p) }; continue }
+        s = applyMove(s, p, pick, d).state
+      } else {
+        const d = rollDice()
+        const legal = legalTokens(s, 0, d)
+        const pick = legal.length ? legal[Math.floor(Math.random() * legal.length)] : null
+        if (pick === null) { s = { ...s, dice: null, rolled: false, sixes: 0, turn: nextActive(s, 0) }; continue }
+        s = applyMove(s, 0, pick, d).state
+      }
+    }
+  }
+  const pct = total ? ((risky / total) * 100).toFixed(1) : '0'
+  console.log(`  bot left a token in enemy dice range on ${risky}/${total} moves (${pct}%)`)
+  if (total && risky / total > 0.35) bad(`bot is reckless: ${pct}% of moves land in enemy dice range`)
+}
+
+console.log('=== LUDO: bot beats a random mover (was the "weak AI" complaint) ===')
+{
+  let botWins = 0, rndWins = 0, draws = 0
+  for (let g = 0; g < 1500; g++) {
+    let s: LudoState = initLudo(2)
+    let steps = 0
+    while (s.winner === null && steps++ < 4000) {
+      const p = s.turn
+      const d = rollDice()
+      if (d === 6 && s.sixes >= 2) { s = { ...s, dice: null, rolled: false, sixes: 0, turn: nextActive(s, p) }; continue }
+      const legal = legalTokens(s, p, d)
+      const pick = legal.length ? (p === 2 ? botChoose(s, p, d)! : legal[Math.floor(Math.random() * legal.length)]) : null
+      if (pick === null) { s = { ...s, dice: null, rolled: false, sixes: 0, turn: nextActive(s, p) }; continue }
+      s = applyMove(s, p, pick, d).state
+    }
+    if (s.winner === 2) botWins++
+    else if (s.winner === 0) rndWins++
+    else draws++
+  }
+  const wr = ((botWins / 1500) * 100).toFixed(1)
+  console.log(`  bot (yellow) win rate vs random player: ${wr}%  [bot ${botWins} / random ${rndWins} / timeout ${draws}]`)
+  if (botWins <= rndWins) bad(`bot is not stronger than a random mover (${botWins} vs ${rndWins})`)
 }
 
 console.log('=== GUTI: initial board ===')

@@ -107,21 +107,74 @@ export function applyMove(s: LudoState, p: PlayerId, tokenIdx: number, dice: num
   }
 }
 
-/** Bot heuristic: capture > finish a token > open from base on a 6 > advance the leader. */
+/** how many enemy tokens sit on ring cell `pos` (i.e. p could capture them) */
+function capturesAt(s: LudoState, p: PlayerId, pos: number): number {
+  const abs = ringAbs(p, pos)
+  if (abs === null || SAFE_ABS.has(abs)) return 0
+  let n = 0
+  for (const o of s.players) {
+    if (o === p) continue
+    for (const t of s.tokens[o]) if (ringAbs(o, t) === abs) n++
+  }
+  return n
+}
+
+/** how many enemy tokens can reach ring cell `pos` with a single roll of 1..6 */
+function threatsAt(s: LudoState, p: PlayerId, pos: number): number {
+  const abs = ringAbs(p, pos)
+  if (abs === null || SAFE_ABS.has(abs)) return 0 // safe squares cannot be captured
+  let n = 0
+  for (const o of s.players) {
+    if (o === p) continue
+    for (const t of s.tokens[o]) {
+      const oa = ringAbs(o, t)
+      if (oa === null) continue
+      const d = (abs - oa + 52) % 52
+      if (d >= 1 && d <= 6) n++
+    }
+  }
+  return n
+}
+
+/**
+ * Bot policy.
+ *
+ * The old policy was capture > finish > open on a 6 > "advance whichever token
+ * is furthest". It never counted how many enemy dice could punish the square it
+ * stopped on, so it fed tokens to the nearest opponent and ignored the safe
+ * squares entirely. This scores every legal move instead: take free captures,
+ * race home, refuse to idle in reach of a counter, and only leave the yard when
+ * the start square is genuinely safe.
+ */
 export function botChoose(s: LudoState, p: PlayerId, dice: number): number | null {
   const legal = legalTokens(s, p, dice)
   if (!legal.length) return null
-  // capture
+
+  const landing = (i: number) => (s.tokens[p][i] === 0 ? 1 : s.tokens[p][i] + dice)
+
+  let bestScore = -Infinity
+  let best: number[] = []
   for (const i of legal) {
-    const np = s.tokens[p][i] === 0 ? 1 : s.tokens[p][i] + dice
-    const abs = ringAbs(p, np)
-    if (abs !== null && !SAFE_ABS.has(abs) && s.players.some((o) => o !== p && s.tokens[o].some((t) => ringAbs(o, t) === abs))) return i
+    const pos = landing(i)
+    const cap = capturesAt(s, p, pos)
+    const risk = threatsAt(s, p, pos)
+
+    let sc = 0
+    if (cap > 0) sc += 120 + cap * 25 // sending an enemy home is the whole game
+    if (pos === FINISH) sc += 90
+    else if (pos >= HOME_START) sc += 35 // the home column is untouchable
+    sc -= risk * 34 // do not park where a 1..6 can undo the move
+    sc += Math.min(pos, FINISH) * 0.6 // keep the leader moving
+
+    if (s.tokens[p][i] === 0) {
+      sc += risk > 0 ? -8 : 14 // leaving the yard is only worth it if the start is safe
+    } else if (risk > 0) {
+      sc -= 12 // a threatened token is worth less than an equally safe one
+    }
+
+    if (sc > bestScore) { bestScore = sc; best = [i] }
+    else if (sc === bestScore) best.push(i)
   }
-  // finish
-  for (const i of legal) if ((s.tokens[p][i] === 0 ? 1 : s.tokens[p][i] + dice) === FINISH) return i
-  // open from base
-  const fromBase = legal.find((i) => s.tokens[p][i] === 0)
-  if (dice === 6 && fromBase !== undefined) return fromBase
-  // advance the most-progressed token
-  return legal.reduce((a, b) => (s.tokens[p][b] > s.tokens[p][a] ? b : a), legal[0])
+
+  return best[Math.floor(Math.random() * best.length)] // tie-break so games differ
 }

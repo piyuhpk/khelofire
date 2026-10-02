@@ -31,12 +31,16 @@ export const HOME_COL: Record<PlayerId, Cell[]> = {
 }
 export const CENTER: Cell = [7, 7]
 
-// four token slots inside each 6x6 corner yard
+// four token slots inside each 6x6 corner yard.
+// The yard draws a white 2x2 plate inset one cell from the quad edge, so each
+// quadrant's centre is a half-cell coordinate. These used to be whole cells
+// ([2,2] etc.), which parked every waiting piece half a square up-and-left of
+// the circle it belongs on.
 export const BASE_SLOTS: Record<PlayerId, Cell[]> = {
-  0: [[2, 2], [2, 4], [4, 2], [4, 4]],         // top-left
-  1: [[2, 11], [2, 13], [4, 11], [4, 13]],     // top-right
-  2: [[11, 11], [11, 13], [13, 11], [13, 13]], // bottom-right
-  3: [[11, 2], [11, 4], [13, 2], [13, 4]],     // bottom-left
+  0: [[1.5, 1.5], [1.5, 3.5], [3.5, 1.5], [3.5, 3.5]],   // top-left
+  1: [[1.5, 10.5], [1.5, 12.5], [3.5, 10.5], [3.5, 12.5]], // top-right
+  2: [[10.5, 10.5], [10.5, 12.5], [12.5, 10.5], [12.5, 12.5]], // bottom-right
+  3: [[10.5, 1.5], [10.5, 3.5], [12.5, 1.5], [12.5, 3.5]],   // bottom-left
 }
 
 // 6x6 corner areas [rowStart, colStart, rowEnd, colEnd]

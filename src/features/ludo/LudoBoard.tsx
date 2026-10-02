@@ -1,5 +1,5 @@
 import { PATH, HOME_COL, CENTER, QUAD_AREA, BASE_SLOTS, cellFor } from '../../engine/ludoBoard'
-import { SAFE_ABS, START_OFFSET, COLORS, type LudoState, type PlayerId } from '../../engine/ludo'
+import { SAFE_ABS, START_OFFSET, COLORS, FINISH, type LudoState, type PlayerId } from '../../engine/ludo'
 
 const N = 15
 const pct = (v: number) => `${(v * 100) / N}%`
@@ -28,10 +28,16 @@ function PinToken({ color, dim = false }: { color: string; dim?: boolean }) {
 
 export function LudoBoard({ state, legal, onToken }: { state: LudoState; legal: number[]; onToken: (i: number) => void }) {
   const tokenAt: Record<string, { p: PlayerId; i: number }[]> = {}
+  // Finished tokens all share the single centre square. Fanning them out by
+  // token index keeps all four visible instead of burying three under one.
+  const FINISHED_SLOT: Record<number, [number, number]> = {
+    0: [-0.95, -0.95], 1: [0.95, -0.95], 2: [-0.95, 0.95], 3: [0.95, 0.95],
+  }
   state.players.forEach((p) =>
     state.tokens[p].forEach((pos, i) => {
-      const [r, c] = cellFor(p, pos, i)
-      ;(tokenAt[key(r, c)] ||= []).push({ p, i })
+      let [r, c] = cellFor(p, pos, i)
+      if (pos >= FINISH) { r += FINISHED_SLOT[i][0]; c += FINISHED_SLOT[i][1] }
+      ;(tokenAt[`${r.toFixed(2)},${c.toFixed(2)}`] ||= []).push({ p, i })
     })
   )
 
@@ -97,13 +103,23 @@ export function LudoBoard({ state, legal, onToken }: { state: LudoState; legal: 
           const [r, c] = k.split(',').map(Number)
           const isLegal = p === 0 && p === state.turn && legal.includes(i)
           const n = list.length
-          const off = n > 1 ? (si - (n - 1) / 2) * 1.6 : 0
+          // Two or more tokens on one square are shrunk and fanned out. They
+          // used to sit on the exact same pixel, so a pile read as one piece and
+          // the rest of the pile was invisible.
+          const scale = n > 1 ? 1 / (1 + (n - 1) * 0.22) : 1
+          const spread = (si - (n - 1) / 2) * (n > 2 ? 0.46 : 0.42)
+          const w = 5.9 * scale
+          const h = 7.4 * scale
           return (
             <button key={`${p}-${i}`} disabled={!isLegal} onClick={() => isLegal && onToken(i)}
               className={`absolute ${isLegal ? 'z-20 cursor-pointer' : 'z-10'}`}
               style={{
-                left: `calc(${pct(c)} + ${pct(0.5)} + ${off}px)`, top: pct(r),
-                width: '5.4%', height: '6.9%', transform: 'translateX(-50%)',
+                // anchored to the MIDDLE of the square, not its top edge - this is
+                // what made pieces look detached from their cell
+                left: `calc(${pct(c)} + ${pct(0.5)} + ${spread * (100 / N)}%)`,
+                top: `calc(${pct(r)} + ${pct(0.5)})`,
+                width: `${w}%`, height: `${h}%`,
+                transform: 'translate(-50%, -50%)',
                 background: 'transparent', border: 'none', padding: 0,
               }}
               aria-label={`token ${p}-${i}`}>
