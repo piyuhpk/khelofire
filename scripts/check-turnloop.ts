@@ -5,6 +5,7 @@
 // killed the second timeout before the bot ever moved.
 //
 // usage: node check-turnloop.mjs
+import { readFileSync } from 'node:fs'
 import { initLudo, legalTokens, applyMove, rollDice, botChoose, nextActive, type LudoState } from '../src/engine/ludo'
 
 let fails = 0
@@ -107,7 +108,65 @@ for (const split of ['split', 'atomic'] as Split[]) {
   console.log('')
 }
 
+// ---------------------------------------------------------------------------
+// Source guards. The simulation above is a MODEL of the component, so it cannot
+// catch the component drifting back into the broken shape. These read the real
+// src/features/ludo/LudoGame.tsx and assert the exact constructs that caused the
+// permanent freezes, so a regression fails here instead of in a paid match.
+// Must be run from the repo root.
+console.log('=== LUDO: real source guards on src/features/ludo/LudoGame.tsx ===')
+{
+  const src = readFileSync('src/features/ludo/LudoGame.tsx', 'utf8')
+  const slice = (from: string, to: string): string => {
+    const a = src.indexOf(from)
+    const b = src.indexOf(to, a + from.length)
+    if (a < 0 || b < 0) { bad(`could not locate the "${from}" block in LudoGame.tsx - markers moved, update this check`); return '' }
+    return src.slice(a, b)
+  }
+
+  const bot = slice('// Bot turn', 'const pendingPass')
+  const countdown = slice('// Turn countdown', '// Bot turn')
+  const rollFn = slice('const roll = () =>', 'const onToken')
+
+  // (1) the bot turn must commit in one state update. Two setTimeouts in this
+  //     block is exactly what used to leave {rolled:true, turn:bot} forever.
+  const botTimers = (bot.match(/setTimeout\(/g) || []).length
+  console.log(`  bot turn: ${botTimers} setTimeout, ${(bot.match(/setSt\(/g) || []).length} setSt call site(s)`)
+  if (botTimers !== 1) bad(`the bot turn has ${botTimers} setTimeout calls; it must be exactly 1 or the cleanup race comes back`)
+  if (botTimers === 1 && /setTimeout\([\s\S]*setTimeout\(/.test(bot.replace(/setTimeout\([^)]*\)[^\n]*\n/, ''))) {
+    bad('a setTimeout is nested inside another inside the bot turn')
+  }
+
+  // (2) the countdown must not bail out once the player has rolled, otherwise
+  //     rolling and walking away freezes the match.
+  if (/^\s*if\s*\(!yourTurn\s*\|\|\s*st\.rolled\)\s*return/m.test(countdown)) {
+    bad('the countdown still returns early when st.rolled is true, so a rolled-but-unused turn never expires')
+  }
+  if (!/st\.rolled/.test(countdown)) bad('the countdown does not depend on st.rolled, so rolling does not restart the clock')
+
+  // (3) the dice commit must be invalidated when the turn moves on mid-animation
+  if (!/rollToken\.current\s*!==/.test(rollFn)) {
+    bad('roll() commits its result without checking rollToken, so an expiry during the 500ms animation can still write rolled:true onto another turn')
+  }
+  if (!/setSt\(\(s\)\s*=>\s*\(s\.turn\s*===/.test(rollFn)) {
+    bad('roll() commits without re-checking that it is still the player\'s turn inside the state updater')
+  }
+  if (!/if\s*\(st\.turn\s*!==\s*0/.test(rollFn)) {
+    bad('roll() does not bail out when the turn changed during the dice animation')
+  }
+
+  // (4) the spinner must be cleared before the staleness check, otherwise the
+  //     dice button stays disabled forever after a superseded roll
+  const spin = rollFn.indexOf('setRolling(false)')
+  const stale = rollFn.indexOf('rollToken.current !== mine')
+  if (spin < 0) bad('roll() never clears the rolling spinner')
+  if (spin > stale) bad('roll() returns on a stale roll before clearing the spinner, leaving the dice button disabled')
+
+  console.log(fails === 0 ? '  all source guards hold' : '  source guard failures above')
+  console.log('')
+}
+
 console.log(fails === 0
-  ? 'VERIFIED: the old two-timeout pattern freezes the board, the fixed one-shot pattern never does.'
+  ? 'VERIFIED: the old two-timeout pattern freezes the board, the fixed one-shot pattern never does, and the real component no longer contains the constructs that caused the freezes.'
   : `${fails} CHECK(S) FAILED`)
 process.exit(fails ? 1 : 0)

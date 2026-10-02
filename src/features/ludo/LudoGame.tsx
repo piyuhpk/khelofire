@@ -10,6 +10,9 @@ import { initLudo, legalTokens, applyMove, rollDice, botChoose, nextActive, COLO
 
 const BOT_NAMES = ['—', 'Rahim', 'Sakib', 'Tanvir']
 
+/** seconds allowed to roll, and again to pick the token once rolled */
+const TURN_SECONDS = 20
+
 const DICE_PIPS: Record<number, [number, number][]> = {
   1: [[1, 1]], 2: [[0, 0], [2, 2]], 3: [[0, 0], [1, 1], [2, 2]],
   4: [[0, 0], [0, 2], [2, 0], [2, 2]], 5: [[0, 0], [0, 2], [1, 1], [2, 0], [2, 2]],
@@ -60,6 +63,9 @@ export default function LudoGame() {
   const [timer, setTimer] = useState(20)
   const [result, setResult] = useState<Outcome | null>(null)
   const settled = useRef(false)
+  // bumped whenever the turn moves on, so an in-flight dice animation knows its
+  // result is stale instead of writing rolled:true onto somebody else's turn
+  const rollToken = useRef(0)
 
   const yourTurn = st.turn === 0 && st.winner === null && !result
   const loc = useLocation()
@@ -67,6 +73,15 @@ export default function LudoGame() {
   const nameFor = (p: PlayerId) => (p === 0 ? username : isReal ? `Player ${p}` : (BOT_NAMES[p] || `${COLOR_NAME[p]} Bot`))
   const avatarFor = (p: PlayerId) => (p === 0 ? avatar : isReal ? '👤' : ['👤', '🤖', '🐯', '🦊'][p])
   const homeCount = (p: PlayerId) => st.tokens[p].filter((x) => x >= FINISH).length
+
+  // single place that hands the turn on, so every exit path (timeout, no legal
+  // move, three sixes, forfeit) clears the same transient state
+  const passTurn = (from: PlayerId) => {
+    rollToken.current++
+    setLegal([])
+    setMsg('')
+    setSt((s) => ({ ...s, dice: null, rolled: false, sixes: 0, turn: nextActive(s, from) }))
+  }
 
   // settle when someone wins
   useEffect(() => {
@@ -79,12 +94,21 @@ export default function LudoGame() {
     }, 900)
   }, [st.winner]) // eslint-disable-line
 
-  // your turn countdown
+  // Turn countdown. It has to cover the WHOLE turn, not just the pre-roll
+  // phase: it used to return early once st.rolled was true, so rolling a die and
+  // then walking away froze the board for good in a paid match - the dice button
+  // is disabled, onToken refuses, and no effect was left to advance the state.
+  // Rolling flips st.rolled, which restarts the clock and grants a fresh budget
+  // to pick a token.
   useEffect(() => {
-    if (!yourTurn || st.rolled) return
-    setTimer(20)
+    if (!yourTurn) return
+    setTimer(TURN_SECONDS)
     const id = setInterval(() => setTimer((x) => {
-      if (x <= 1) { clearInterval(id); setSt((s) => ({ ...s, dice: null, rolled: false, sixes: 0, turn: nextActive(s, 0) })); return 0 }
+      if (x <= 1) {
+        clearInterval(id)
+        passTurn(0)
+        return 0
+      }
       return x - 1
     }), 1000)
     return () => clearInterval(id)
@@ -133,23 +157,30 @@ export default function LudoGame() {
   }, [result])
   useEffect(() => () => { if (pendingPass.current !== null) clearTimeout(pendingPass.current) }, [])
 
-  const roll = () => {
-    if (!yourTurn || rolling || st.rolled) return
-    setRolling(true)
+const roll = () => {
+    if (!yourTurn || rolling || st.rolled || timer <= 0) return
+    const mine = ++rollToken.current
     const d = rollDice()
+    setRolling(true)
     setTimeout(() => {
+      // always clear the spinner first: if this roll is stale the button must
+      // not stay disabled forever
       setRolling(false)
-      if (d === 6 && st.sixes >= 2) { setMsg(t('ludo.threeSixes')); setSt((s) => ({ ...s, dice: null, rolled: false, sixes: 0, turn: nextActive(s, 0) })); return }
+      if (rollToken.current !== mine) return
+      if (d === 6 && st.sixes >= 2) { setMsg(t('ludo.threeSixes')); passTurn(0); return }
       const lg = legalTokens(st, 0, d)
-      setSt((s) => ({ ...s, dice: d, rolled: true, sixes: d === 6 ? s.sixes + 1 : s.sixes }))
+      // The countdown can expire inside this 500ms animation. Committing blindly
+      // used to land { turn: <opponent>, rolled: true } - the bot effect skips it
+      // because rolled is true, and the countdown effect skips it because it is
+      // no longer your turn, so the board froze permanently and only resign or
+      // leave could get you out. Bail out if the turn already moved on.
+      if (st.turn !== 0 || st.winner !== null || result !== null) return
+      setSt((s) => (s.turn === 0 && !s.rolled ? { ...s, dice: d, rolled: true, sixes: d === 6 ? s.sixes + 1 : s.sixes } : s))
       setLegal(lg)
       if (!lg.length) {
         setMsg(t('ludo.noMove'))
         if (pendingPass.current !== null) clearTimeout(pendingPass.current)
-        pendingPass.current = window.setTimeout(() => {
-          pendingPass.current = null
-          setSt((s) => ({ ...s, dice: null, rolled: false, sixes: 0, turn: nextActive(s, 0) }))
-        }, 850)
+        pendingPass.current = window.setTimeout(() => { pendingPass.current = null; passTurn(0) }, 850)
       } else setMsg(t('ludo.selectToken'))
     }, 500)
   }
@@ -195,7 +226,7 @@ export default function LudoGame() {
           </div>
 
           {/* dice (center, elevated) */}
-          <button onClick={roll} disabled={!yourTurn || st.rolled || rolling}
+          <button onClick={roll} disabled={!yourTurn || st.rolled || rolling || timer <= 0}
             className={`relative z-10 -my-6 grid h-[68px] w-[68px] shrink-0 place-items-center rounded-full transition disabled:opacity-60 ${rolling ? 'animate-dice-tumble' : 'active:scale-95'}`}
             style={{ background: 'radial-gradient(circle at 50% 35%, #FFF7DF, #F3D98F 70%, #D9A93F 100%)', border: '3px solid #FFE9AE', boxShadow: '0 10px 22px -6px rgba(0,0,0,.75), inset 0 -3px 6px rgba(0,0,0,.18)' }}
             aria-label="roll dice">
@@ -217,7 +248,11 @@ export default function LudoGame() {
         <p className="text-sm font-semibold" style={{ color: yourTurn ? 'var(--gold)' : 'rgba(255,255,255,.7)' }}>
           {result ? '' : yourTurn ? (st.rolled ? msg || t('ludo.selectToken') : t('ludo.yourTurn')) : `${nameFor(st.turn)} ${t('ludo.playing')}`}
         </p>
-        {yourTurn && !st.rolled && <p className="mt-0.5 text-xs text-white/55 tnum">{timer} {t('ludo.secondsLeft')}</p>}
+        {yourTurn && (
+          <p className="mt-0.5 text-xs tnum" style={{ color: timer <= 5 ? '#FF6B6B' : 'rgba(255,255,255,.55)', fontWeight: timer <= 5 ? 800 : 500 }}>
+            {timer} {t('ludo.secondsLeft')}
+          </p>
+        )}
         {!yourTurn && !result && st.winner === null && botDice !== null && (
           <p className="mt-0.5 text-xs font-bold text-white/70">{nameFor(st.turn)} rolled {botDice}</p>
         )}
