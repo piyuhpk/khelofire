@@ -12,12 +12,16 @@
 // still have to be run against a real database.
 //
 // usage: node check-sql.mjs [file ...]
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 
-const files = process.argv.slice(2).length ? process.argv.slice(2) : [
-  'supabase/schema.sql',
-  'supabase/002_live_matches.sql',
-]
+// every .sql in supabase/, so a new migration is checked the day it is written
+// rather than the day someone remembers to add it here
+const files = process.argv.slice(2).length
+  ? process.argv.slice(2)
+  : readdirSync('supabase')
+      .filter((f) => f.endsWith('.sql'))
+      .sort()
+      .map((f) => `supabase/${f}`)
 
 let fails = 0
 const bad = (f: string, m: string) => { console.log(`  FAIL ${f}: ${m}`); fails++ }
