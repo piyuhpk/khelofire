@@ -27,17 +27,22 @@ export interface LeaderRow {
   wins: number
 }
 
-/** Settle a finished match. Entry + prize come from match_modes, not the client. */
-export async function settleMatch(
-  game: string,
-  modeId: string,
-  outcome: Outcome,
-): Promise<SettleResult | null> {
+/**
+ * Settle a REAL match. The outcome argument is ignored by the server - it derives
+ * win/loss from winner_seat, which only the ludo-game edge function can write. It
+ * is still passed because the SQL signature takes it.
+ *
+ * Note the signature. The old settle_match(p_game, p_mode, p_outcome) took a
+ * client-declared outcome and was REVOKED from authenticated in 002, because a
+ * modified client could simply report "I won" and be paid. It is deliberately not
+ * re-exposed here under its old name: real money must be settled by naming a live
+ * match, never by asserting a result.
+ */
+export async function settleLiveMatch(matchId: string): Promise<SettleResult | null> {
   if (!hasSupabase || !supabase) return null
   const { data, error } = await supabase.rpc('settle_match', {
-    p_game: game,
-    p_mode: modeId,
-    p_outcome: outcome,
+    p_match_id: matchId,
+    p_outcome: 'win', // ignored server-side; kept so the signature matches
   })
   if (error) throw new Error(error.message)
   return (data as SettleResult) ?? null

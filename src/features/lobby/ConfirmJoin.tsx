@@ -41,7 +41,13 @@ export default function ConfirmJoin() {
     if (isFree) setTimeout(() => go(false), 1200)
   }
 
-  // paid: auto-start vs real when 2+ online; after 10s offer bot-or-refund choice
+  // Paid: wait for a real player, and if nobody comes, refund.
+  //
+  // There used to be a "Play vs Bot" button here for paid modes. It was a trap:
+  // the entry was already locked, the game ran entirely on the phone, and the
+  // server was never told the match existed - so the entry stayed locked and,
+  // before settle_match was revoked, could even be claimed as a prize. Paid means
+  // a real opponent or your money back. The bot stays on free modes.
   useEffect(() => {
     if (phase !== 'matching' || isFree) return
     if (realFound) { const id = setTimeout(() => go(true), 1200); return () => clearTimeout(id) }
@@ -67,9 +73,8 @@ export default function ConfirmJoin() {
         <p className="text-xs text-white/70 tnum">{online} online · {isFree ? (lang === 'bn' ? 'ফ্রি ম্যাচ — বটের সাথে' : 'Free match — vs bot') : realFound ? (lang === 'bn' ? 'আসল প্লেয়ার মিলেছে ✓' : 'Real player found ✓') : (lang === 'bn' ? 'আসল প্লেয়ারের অপেক্ষা…' : 'Waiting for real player…')}</p>
         {!isFree && waited && !realFound && (
           <div className="w-full space-y-2 rounded-2xl p-4" style={{ background: 'rgba(0,0,0,.3)' }}>
-            <p className="text-xs text-white/80">{lang === 'bn' ? 'কেউ আসেনি — বটের সাথে খেলবেন নাকি টাকা ফেরত নেবেন?' : 'No one joined — play vs bot or take refund?'}</p>
-            <button onClick={() => go(false)} className="btn-primary w-full">{lang === 'bn' ? 'বটের সাথে খেলুন' : 'Play vs Bot'}</button>
-            <button onClick={cancelRefund} className="btn-ghost w-full">{lang === 'bn' ? 'রিফান্ড নিন' : 'Refund & Back'}</button>
+            <p className="text-xs text-white/80">{lang === 'bn' ? 'কেউ আসেনি। আপনার টাকা ফেরত নিন।' : 'No one joined. Take your entry back.'}</p>
+            <button onClick={cancelRefund} className="btn-primary w-full">{lang === 'bn' ? 'রিফান্ড নিন' : 'Refund & Back'}</button>
           </div>
         )}
         <div className="flex gap-1">{[0, 1, 2].map((i) => <span key={i} className="h-2 w-2 rounded-full bg-white/60 animate-bounce" style={{ animationDelay: `${i * 150}ms` }} />)}</div>

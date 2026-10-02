@@ -62,6 +62,9 @@ export interface Ledger {
 export interface MatchRecord {
   id: string; game: GameKey; mode: string; modeId: string; entryMinor: number; prizeMinor: number
   outcome: Outcome; deltaMinor: number; ts: number; moves?: number
+  /** set only for a real match: the live_matches row the server settled.
+   *  Its absence means a local/bot game, which has no stake to settle. */
+  liveMatchId?: string
 }
 export interface Notif { id: string; type: string; titleBn: string; titleEn: string; ts: number; read: boolean }
 export type TicketStatus = 'open' | 'answered' | 'closed'
@@ -604,9 +607,19 @@ export const useStore = create<DemoState>()(
         })
 
         if (!liveMode) return
+        // A bot/practice game has entry 0 and prize 0, so there is nothing to pay
+        // and nothing to reconcile. The old settle_match(game, mode, outcome) took
+        // a client-declared outcome and is revoked from authenticated, so calling
+        // it here would throw on every practice game and would have been a way to
+        // claim a payout for a match the server never saw.
+        //
+        // Captured in a const because narrowing on rec does not survive into the
+        // async closure below.
+        const liveMatchId = rec.liveMatchId
+        if (!liveMatchId) return
         void (async () => {
           try {
-            const r = await wallet.settleMatch(rec.game, rec.modeId, rec.outcome)
+            const r = await wallet.settleLiveMatch(liveMatchId)
             if (!r) return
             // adopt the server's numbers
             set((s) => ({
