@@ -62,7 +62,7 @@ export default function DiceGame() {
   const finish = (outcome: Outcome, ms: number, bs: number) => {
     if (settled.current) return
     settled.current = true
-    settle({ game: 'dice', mode: t(m!.nameKey as any), entryMinor: m!.entryMinor, prizeMinor: m!.prizeMinor, outcome, deltaMinor: outcome === 'win' ? m!.prizeMinor - m!.entryMinor : outcome === 'loss' ? -m!.entryMinor : 0, moves: ms + bs })
+    settle({ game: 'dice', mode: t(m!.nameKey as any), modeId: m!.id, entryMinor: m!.entryMinor, prizeMinor: m!.prizeMinor, outcome, deltaMinor: outcome === 'win' ? m!.prizeMinor - m!.entryMinor : outcome === 'loss' ? -m!.entryMinor : 0, moves: ms + bs })
     setTimeout(() => setResult(outcome), 800)
   }
 

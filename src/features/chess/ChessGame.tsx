@@ -43,7 +43,7 @@ export default function ChessGame() {
     if (settled.current) return
     settled.current = true
     setSubtitle(sub)
-    settle({ game: 'chess', mode: t(m!.nameKey as any), entryMinor: m!.entryMinor, prizeMinor: m!.prizeMinor, outcome, deltaMinor: outcome === 'win' ? m!.prizeMinor - m!.entryMinor : outcome === 'loss' ? -m!.entryMinor : 0, moves: Math.ceil(game.current.history().length / 2) })
+    settle({ game: 'chess', mode: t(m!.nameKey as any), modeId: m!.id, entryMinor: m!.entryMinor, prizeMinor: m!.prizeMinor, outcome, deltaMinor: outcome === 'win' ? m!.prizeMinor - m!.entryMinor : outcome === 'loss' ? -m!.entryMinor : 0, moves: Math.ceil(game.current.history().length / 2) })
     setTimeout(() => setResult(outcome), 700)
   }
 

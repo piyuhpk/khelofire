@@ -6,7 +6,7 @@ import { useStore, type Outcome } from '../../lib/store'
 import { GameHeader, VoiceButton, ExitModal, ResultModal } from '../game/GameShell'
 import { MatchChat } from '../game/MatchChat'
 import { LudoBoard } from './LudoBoard'
-import { initLudo, legalTokens, applyMove, rollDice, botChoose, nextActive, COLORS, COLOR_NAME, type LudoState, type PlayerId } from '../../engine/ludo'
+import { initLudo, legalTokens, applyMove, rollDice, botChoose, nextActive, COLORS, COLOR_NAME, FINISH, type LudoState, type PlayerId } from '../../engine/ludo'
 
 const BOT_NAMES = ['—', 'Rahim', 'Sakib', 'Tanvir']
 
@@ -65,7 +65,7 @@ export default function LudoGame() {
   const isReal = (loc.state as any)?.real === true
   const nameFor = (p: PlayerId) => (p === 0 ? username : isReal ? `Player ${p}` : (BOT_NAMES[p] || `${COLOR_NAME[p]} Bot`))
   const avatarFor = (p: PlayerId) => (p === 0 ? avatar : isReal ? '👤' : ['👤', '🤖', '🐯', '🦊'][p])
-  const homeCount = (p: PlayerId) => st.tokens[p].filter((x) => x === 57).length
+  const homeCount = (p: PlayerId) => st.tokens[p].filter((x) => x >= FINISH).length
 
   // settle when someone wins
   useEffect(() => {
@@ -73,7 +73,7 @@ export default function LudoGame() {
     settled.current = true
     const outcome: Outcome = st.winner === 0 ? 'win' : 'loss'
     setTimeout(() => {
-      settle({ game: 'ludo', mode: t(m!.nameKey as any), entryMinor: m!.entryMinor, prizeMinor: m!.prizeMinor, outcome, deltaMinor: outcome === 'win' ? m!.prizeMinor - m!.entryMinor : -m!.entryMinor })
+      settle({ game: 'ludo', mode: t(m!.nameKey as any), modeId: m!.id, entryMinor: m!.entryMinor, prizeMinor: m!.prizeMinor, outcome, deltaMinor: outcome === 'win' ? m!.prizeMinor - m!.entryMinor : -m!.entryMinor })
       setResult(outcome)
     }, 900)
   }, [st.winner]) // eslint-disable-line
@@ -192,7 +192,7 @@ export default function LudoGame() {
       </div>
 
       <div className="px-3 pb-3 pt-1 flex gap-2">
-        <button onClick={() => { if (!settled.current) { settled.current = true; settle({ game: 'ludo', mode: t(m!.nameKey as any), entryMinor: m!.entryMinor, prizeMinor: m!.prizeMinor, outcome: 'loss', deltaMinor: -m!.entryMinor }); setResult('loss') } }} className="btn-danger flex-1 py-2 text-sm">{t('game.resign')}</button>
+        <button onClick={() => { if (!settled.current) { settled.current = true; settle({ game: 'ludo', mode: t(m!.nameKey as any), modeId: m!.id, entryMinor: m!.entryMinor, prizeMinor: m!.prizeMinor, outcome: 'loss', deltaMinor: -m!.entryMinor }); setResult('loss') } }} className="btn-danger flex-1 py-2 text-sm">{t('game.resign')}</button>
         <MatchChat opponentName={nameFor(opponents[0] ?? 1)} roomId={modeId ?? m!.id} />
       </div>
 

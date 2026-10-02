@@ -4,9 +4,21 @@
 // Token position model (per token):
 //   0        = in base (yard)
 //   1..51    = steps along the shared 52-cell ring (relative to that player's start)
-//   52..56   = the 5-cell home column
-//   57       = finished (reached center)
+//   52..57   = the 6-cell home column (runs into the centre square)
+//   58       = finished (parked on the centre)
+//
+// The home column is SIX cells, not five. Each corner arm of the 15x15 board
+// runs from the ring exit to the centre: exit, 6 arm cells, centre. With only
+// five, the last arm cell sat two squares away from the centre and every
+// finished token visibly teleported the last step - the glitch players saw.
 export type PlayerId = 0 | 1 | 2 | 3
+
+/** first position that sits on the coloured home column */
+export const HOME_START = 52
+/** last home-column cell, directly adjacent to the centre */
+export const HOME_END = HOME_START + 5
+/** parked on the centre square */
+export const FINISH = HOME_END + 1
 
 // Ludo King layout: Red top-left, Green top-right, Yellow bottom-right, Blue bottom-left.
 // Exact Ludo King palette.
@@ -51,8 +63,8 @@ export function legalTokens(s: LudoState, p: PlayerId, dice: number): number[] {
   const out: number[] = []
   s.tokens[p].forEach((pos, i) => {
     if (pos === 0) { if (dice === 6) out.push(i) }
-    else if (pos === 57) { /* already home */ }
-    else if (pos + dice <= 57) out.push(i)
+    else if (pos >= FINISH) { /* already home */ }
+    else if (pos + dice <= FINISH) out.push(i)
   })
   return out
 }
@@ -77,8 +89,8 @@ export function applyMove(s: LudoState, p: PlayerId, tokenIdx: number, dice: num
     }
   }
 
-  const reachedHome = pos === 57
-  const playerDone = tokens[p].every((t) => t === 57)
+  const reachedHome = pos === FINISH
+  const playerDone = tokens[p].every((t) => t >= FINISH)
   const extraTurn = dice === 6 || captured || reachedHome
   const winner = playerDone ? p : null // first player to bring all four home wins the match
   return {
@@ -106,7 +118,7 @@ export function botChoose(s: LudoState, p: PlayerId, dice: number): number | nul
     if (abs !== null && !SAFE_ABS.has(abs) && s.players.some((o) => o !== p && s.tokens[o].some((t) => ringAbs(o, t) === abs))) return i
   }
   // finish
-  for (const i of legal) if ((s.tokens[p][i] === 0 ? 1 : s.tokens[p][i] + dice) === 57) return i
+  for (const i of legal) if ((s.tokens[p][i] === 0 ? 1 : s.tokens[p][i] + dice) === FINISH) return i
   // open from base
   const fromBase = legal.find((i) => s.tokens[p][i] === 0)
   if (dice === 6 && fromBase !== undefined) return fromBase

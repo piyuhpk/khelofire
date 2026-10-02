@@ -1,6 +1,7 @@
 import { useT } from '../../i18n'
 import { useStore, type Outcome } from '../../lib/store'
 import { fmt } from '../../lib/money'
+import { modeById } from '../../lib/catalog'
 import { EmptyState, ListSkeleton, useReady } from '../../ui/components'
 
 const badge: Record<Outcome, string> = {
@@ -8,10 +9,21 @@ const badge: Record<Outcome, string> = {
   draw: 'bg-gold/15 text-navy dark:text-gold', cancelled: 'bg-navy/10 text-muted',
 }
 
+// Rows loaded from the server store the mode id. Resolve it through the catalog
+// so the name is localised; fall back to the stored label for older rows.
+function useModeLabel() {
+  const t = useT()
+  return (m: { modeId?: string; mode: string }) => {
+    const mod = m.modeId ? modeById(m.modeId) : undefined
+    return mod ? t(mod.nameKey as any) : m.mode
+  }
+}
+
 export default function MyMatches() {
   const t = useT()
   const matches = useStore((s) => s.matches)
   const ready = useReady(550)
+  const modeLabel = useModeLabel()
   return (
     <div className="p-4">
       <h1 className="text-lg font-extrabold mb-3">{t('matches.title')}</h1>
@@ -21,7 +33,7 @@ export default function MyMatches() {
             <div key={mt.id} className="card p-3 flex items-center gap-3">
               <div className="text-2xl">{({ ludo: '🎲', chess: '♟️', guti: '⚫', dice: '🎲' } as Record<string, string>)[mt.game] ?? '🎮'}</div>
               <div className="flex-1">
-                <div className="text-sm font-bold">{mt.mode}</div>
+                <div className="text-sm font-bold">{modeLabel(mt)}</div>
                 <div className="text-[11px] text-muted">{new Date(mt.ts).toLocaleString()}{mt.moves ? ` · ${mt.moves} ${t('result.moves')}` : ''}</div>
               </div>
               <div className="text-right">

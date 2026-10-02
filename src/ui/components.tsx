@@ -1,6 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode, type CSSProperties } from 'react'
 import { CheckCircle2, AlertTriangle, Info, Inbox } from 'lucide-react'
 import { useT } from '../i18n'
+import { setNoticeSink } from '../lib/notice'
 
 // ---- Skeleton loaders ----
 // `.skel` (shimmer sweep) is defined in index.css. `useReady` fakes a short
@@ -127,6 +128,12 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     setToasts((t) => [...t, { id, msg, kind }])
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 2600)
   }
+  // let non-React modules (store / sync / wallet) report failures here instead
+  // of swallowing them - see src/lib/notice.ts
+  useEffect(() => {
+    setNoticeSink(push)
+    return () => setNoticeSink(null)
+  }, [])
   return (
     <ToastCtx.Provider value={push}>
       {children}

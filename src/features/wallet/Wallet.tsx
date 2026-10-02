@@ -41,19 +41,21 @@ export default function Wallet() {
   const [payStep, setPayStep] = useState<'pay' | 'done'>('pay')
   const mStyle = METHOD_STYLE[method] || METHOD_STYLE.bKash
 
-  const submit = () => {
+  const submit = async () => {
     const n = Number(amt)
     if (!n || n <= 0) return toast(t('wallet.amount') + ' ' + t('error.generic'), 'err')
     if (tab === 'add') { setPayStep('pay'); setCheckout(true); return }
     if (n * 100 < minWithdrawMinor) return toast(`${t('wallet.minWithdraw')} ৳${Math.round(minWithdrawMinor / 100)}`, 'err')
-    withdraw(n, method) ? toast(`${t('wallet.pending')} · ${method}`, 'ok') : toast(t('match.insufficient'), 'err')
+    // async now: the server validates and debits, so the result is not known yet
+    if (await withdraw(n, method)) toast(`${t('wallet.pending')} · ${method}`, 'ok')
+    else toast(t('match.insufficient'), 'err')
     setAmt('')
   }
   // Pay Now → deposit REQUEST (pending) — admin panel approves, then credited
-  const payNow = () => {
-    if (!addMoney(Number(amt), method)) { setCheckout(false); return toast(t('error.generic'), 'err') }
+  const payNow = async () => {
+    if (!(await addMoney(Number(amt), method))) { setCheckout(false); return toast(t('error.generic'), 'err') }
     setPayStep('done')
-    setTimeout(() => { setCheckout(false); setAmt(''); toast(`${t('wallet.paySuccess')} · ${method} ✓`, 'ok') }, 1600)
+    setTimeout(() => { setCheckout(false); setAmt('') }, 1600)
   }
   const copyPay = () => {
     navigator.clipboard?.writeText(payNumber.replace(/-/g, ''))

@@ -33,7 +33,7 @@ export default function GutiGame() {
   const finish = (outcome: Outcome) => {
     if (settled.current) return
     settled.current = true
-    settle({ game: 'guti', mode: t(m!.nameKey as any), entryMinor: m!.entryMinor, prizeMinor: m!.prizeMinor, outcome, deltaMinor: outcome === 'win' ? m!.prizeMinor - m!.entryMinor : outcome === 'loss' ? -m!.entryMinor : 0 })
+    settle({ game: 'guti', mode: t(m!.nameKey as any), modeId: m!.id, entryMinor: m!.entryMinor, prizeMinor: m!.prizeMinor, outcome, deltaMinor: outcome === 'win' ? m!.prizeMinor - m!.entryMinor : outcome === 'loss' ? -m!.entryMinor : 0 })
     setTimeout(() => setResult(outcome), 700)
   }
 

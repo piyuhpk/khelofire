@@ -20,12 +20,14 @@ export const PATH: Cell[] = [
   [6, 0],
 ]
 
-// home column cells (pos 52..56) per player, running toward the centre
+// home column cells (pos 52..57) per player, running into the centre square.
+// Six cells each, so the arm is continuous: ring exit -> 6 cells -> CENTRE.
+// Yellow and Blue are listed from their own exit toward the middle.
 export const HOME_COL: Record<PlayerId, Cell[]> = {
-  0: [[7, 1], [7, 2], [7, 3], [7, 4], [7, 5]],      // Red — row 7 from left
-  1: [[1, 7], [2, 7], [3, 7], [4, 7], [5, 7]],      // Green — col 7 from top
-  2: [[7, 13], [7, 12], [7, 11], [7, 10], [7, 9]],  // Yellow — row 7 from right
-  3: [[13, 7], [12, 7], [11, 7], [10, 7], [9, 7]],  // Blue — col 7 from bottom
+  0: [[7, 1], [7, 2], [7, 3], [7, 4], [7, 5], [7, 6]],   // Red — row 7 from left
+  1: [[1, 7], [2, 7], [3, 7], [4, 7], [5, 7], [6, 7]],   // Green — col 7 from top
+  2: [[7, 13], [7, 12], [7, 11], [7, 10], [7, 9], [7, 8]], // Yellow — row 7 from right
+  3: [[13, 7], [12, 7], [11, 7], [10, 7], [9, 7], [8, 7]], // Blue — col 7 from bottom
 }
 export const CENTER: Cell = [7, 7]
 
@@ -52,6 +54,6 @@ export function cellFor(p: PlayerId, pos: number, slot = 0): Cell {
     const abs = (({ 0: 0, 1: 13, 2: 26, 3: 39 } as Record<PlayerId, number>)[p] + (pos - 1)) % 52
     return PATH[abs]
   }
-  if (pos >= 52 && pos <= 56) return HOME_COL[p][pos - 52]
+  if (pos >= 52 && pos <= 57) return HOME_COL[p][pos - 52]
   return CENTER
 }

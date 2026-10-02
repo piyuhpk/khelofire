@@ -1,11 +1,21 @@
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Crown, Trophy, ChevronLeft } from 'lucide-react'
 import { useT } from '../../i18n'
 import { useStore } from '../../lib/store'
+import { hasSupabase } from '../../lib/supabase'
+import { fetchLeaderboard, type LeaderRow } from '../../lib/wallet'
 import { Skeleton, useReady } from '../../ui/components'
 
+// The board used to be eight hardcoded names with made-up win counts, so it was
+// the same for everyone and matched nothing on the server. It now reads
+// get_leaderboard(), which returns only username/avatar/wins - never a balance.
+// Offline / no-Supabase builds fall back to the previous placeholder board so
+// the screen is never empty.
 const NAMES = ['Rahim', 'Karim', 'Sakib', 'Tanvir', 'Nusrat', 'Fahim', 'Jhankar', 'Mahi']
 const AV = ['🐯', '🦊', '🐼', '🦁', '🐺', '🦉', '🐨', '🐵']
+
+interface Row { name: string; wins: number; avatar: string; me: boolean }
 
 export default function Leaderboard() {
   const t = useT()
@@ -15,9 +25,21 @@ export default function Leaderboard() {
   const username = useStore((s) => s.username)
   const wins = useStore((s) => s.wins)
   const avatar = useStore((s) => s.avatar)
+  const [remote, setRemote] = useState<LeaderRow[] | null>(null)
 
-  const rows = NAMES.map((n, i) => ({ name: n, wins: 44 - i * 5, avatar: AV[i], me: false }))
-  rows.push({ name: username, wins, avatar, me: true })
+  useEffect(() => {
+    if (!hasSupabase) return
+    let live = true
+    fetchLeaderboard(50)
+      .then((rows) => { if (live) setRemote(rows) })
+      .catch(() => { if (live) setRemote([]) })
+    return () => { live = false }
+  }, [wins])
+
+  const rows: Row[] = remote && remote.length
+    ? remote.map((r) => ({ name: r.username, wins: r.wins, avatar: r.avatar, me: r.username === username }))
+    : NAMES.map((n, i) => ({ name: n, wins: 44 - i * 5, avatar: AV[i], me: false }))
+  if (!rows.some((r) => r.me)) rows.push({ name: username || 'You', wins, avatar, me: true })
   rows.sort((a, b) => b.wins - a.wins)
   const [p1, p2, p3, ...rest] = rows
   const podium = [

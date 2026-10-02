@@ -1,12 +1,11 @@
-import { StrictMode, useEffect } from 'react'
+import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { createBrowserRouter, RouterProvider, Navigate } from 'react-router-dom'
 import './index.css'
 import { ToastProvider } from './ui/components'
 import { AppLayout } from './app/AppLayout'
 import { RequireAuth } from './app/RequireAuth'
-import { bootstrapAuth } from './lib/auth'
-import { useStore } from './lib/store'
+import { bootstrapAuth, handleOAuthReturn, isNativeApp } from './lib/auth'
 import Auth from './features/auth/Auth'
 import Home from './features/home/Home'
 import Lobby from './features/lobby/Lobby'
@@ -48,10 +47,8 @@ const router = createBrowserRouter([
   { path: '/play/dice/:modeId', element: <DiceGame /> },
   { path: '/freefire', element: <ExternalArena kind="freefire" /> },
   { path: '/ludoking', element: <ExternalArena kind="ludoking" /> },
-  // Admin console - separate route, PIN protected
+  // Admin console - gated by a real staff account (see features/admin Gate)
   { path: '/admin', element: <Admin /> },
-  // Secret admin access route (for boss/client - persistent session)
-  { path: '/admin-access', element: <AdminAccess /> },
   {
     element: <AppLayout />,
     children: [
@@ -68,23 +65,6 @@ const router = createBrowserRouter([
   { path: '*', element: <Navigate to="/" replace /> },
 ])
 
-// Admin access component - routes through the REAL PIN check (no backdoor)
-function AdminAccess() {
-  const adminLogin = useStore((s) => s.adminLogin)
-
-  useEffect(() => {
-    // ?pin=<current admin password> logs in through adminLogin() — the old
-    // hard-coded "4321" compare is gone, so a changed password stays safe.
-    const params = new URLSearchParams(window.location.search)
-    const pin = params.get('pin')
-    if (pin) adminLogin(pin)
-    window.history.replaceState({}, '', '/admin')
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-
-  return <Navigate to="/admin" replace />
-}
-
 // apply persisted theme (default dark)
 const theme = (JSON.parse(localStorage.getItem('kv-i18n') || '{}')?.state?.theme) || 'dark'
 document.documentElement.setAttribute('data-theme', theme)
@@ -92,11 +72,31 @@ document.documentElement.setAttribute('data-theme', theme)
 // restore a live Supabase session if the project is wired (no-op in demo mode)
 bootstrapAuth()
 
+// Google OAuth comes back into the APK as a deep link (khelofire://auth-callback).
+// Without this listener the app opens, finds no session, and looks like the
+// button did nothing. Imported dynamically so the web build is unaffected.
+if (import.meta.env.PROD) {
+  void import('@capacitor/app')
+    .then(async ({ App }) => {
+      // a cold start triggered by the redirect
+      const launched = await App.getLaunchUrl()
+      if (launched?.url?.includes('auth-callback')) void handleOAuthReturn(launched.url)
+      // and a warm start while the app is already open
+      App.addListener('appUrlOpen', ({ url }) => {
+        if (url.includes('auth-callback')) void handleOAuthReturn(url)
+      })
+    })
+    .catch(() => { /* not a native build */ })
+}
+
 // live cross-device announcements (Supabase Realtime broadcast; no-op without keys)
 import('./lib/realtime').then((m) => m.initRealtimeAnnouncements()).catch(() => {})
 
-// register the PWA service worker (production only) so the app is installable
-if (import.meta.env.PROD && 'serviceWorker' in navigator) {
+// Register the PWA service worker (web only). Inside the APK the page is loaded
+// from the packaged assets, so a service worker can only ever serve a STALE
+// bundle after an app update - players would keep hitting the bugs that were
+// just fixed. Skipped for native builds.
+if (import.meta.env.PROD && 'serviceWorker' in navigator && !isNativeApp()) {
   window.addEventListener('load', () => navigator.serviceWorker.register('/sw.js').catch(() => {}))
 }
 

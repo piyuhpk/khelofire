@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronLeft, Wrench, Megaphone, Send, Users, Search, Ban, CheckCircle2, Trash2, Plus, Minus, Image, Gift, CreditCard, LifeBuoy, SlidersHorizontal, Gamepad2, LayoutDashboard, ImageIcon, Upload, X, Shield, Activity, Key, UserPlus, UserCheck, LogOut, Eye, EyeOff, Bell, FileText, Banknote } from 'lucide-react'
+import { ChevronLeft, Wrench, Megaphone, Send, Users, Search, Ban, CheckCircle2, Trash2, Plus, Minus, Image, Gift, CreditCard, LifeBuoy, SlidersHorizontal, Gamepad2, LayoutDashboard, ImageIcon, Upload, X, Shield, Activity, Key, UserPlus, UserCheck, LogOut, Bell, FileText, Banknote } from 'lucide-react'
 import { MODES } from '../../lib/catalog'
 import { fmt, toMinor } from '../../lib/money'
 import { useStore, type AdminUser, type CategoryImageConfig, type AdminRole, type AdminActivity, type AdminSettings, fileToBase64, validateImageFile } from '../../lib/store'
@@ -14,23 +14,43 @@ const TABS = [
   { id: 'Bonus', Icon: Gift }, { id: 'Payments', Icon: CreditCard }, { id: 'Withdrawals', Icon: Banknote }, { id: 'Support', Icon: LifeBuoy }, { id: 'Settings', Icon: SlidersHorizontal },
 ] as const
 
-// ---------- PIN gate ----------
+// ---------- staff sign-in ----------
+// This used to be a single "PIN" field compared against a value stored in the
+// phone's own localStorage, and /admin-access?pin=4321 was a public URL that
+// logged anyone straight in. Now it is a real Supabase account, and the panel
+// only opens if the server says that account has a row in `staff`.
 function Gate({ onOk }: { onOk: () => void }) {
   const nav = useNavigate()
-  const adminLogin = useStore((s) => s.adminLogin)
-  const [pin, setPin] = useState('')
-  const [err, setErr] = useState(false)
-  const submit = () => { if (adminLogin(pin)) onOk(); else { setErr(true); setPin('') } }
+  const adminSignIn = useStore((s) => s.adminSignIn)
+  const [email, setEmail] = useState('')
+  const [pw, setPw] = useState('')
+  const [err, setErr] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const submit = async () => {
+    setErr('')
+    if (!email || pw.length < 6) { setErr('Enter your admin email and password'); return }
+    setBusy(true)
+    const r = await adminSignIn(email.trim(), pw)
+    setBusy(false)
+    if (r.ok) { setPw(''); onOk() }
+    else { setErr(r.error || 'Sign-in failed'); setPw('') }
+  }
+
   return (
     <div className="p-4 pb-8 flex min-h-[70vh] flex-col items-center justify-center">
       <div className="card-solid w-full max-w-[320px] p-6 text-center">
         <span className="mx-auto mb-3 grid h-14 w-14 place-items-center rounded-2xl text-white shadow-glow" style={{ backgroundImage: 'var(--grad-cyan)' }}><Wrench className="h-6 w-6" strokeWidth={2.2} /></span>
         <h1 className="font-display text-lg font-extrabold">Admin Panel</h1>
-        <p className="mt-1 text-xs text-muted">Restricted — enter admin password</p>
-        <input autoFocus type="password" value={pin} onChange={(e) => { setPin(e.target.value); setErr(false) }} onKeyDown={(e) => e.key === 'Enter' && submit()}
-          className="input mt-4 text-center text-lg font-bold" placeholder="password / PIN" />
-        {err && <p className="mt-2 text-xs font-semibold text-danger">Wrong password</p>}
-        <button onClick={submit} className="btn-primary mt-4 w-full">Unlock</button>
+        <p className="mt-1 text-xs text-muted">Staff accounts only</p>
+        <label className="label mt-4 block text-left">Email</label>
+        <input autoFocus autoCapitalize="none" autoCorrect="off" type="email" value={email} onChange={(e) => { setEmail(e.target.value); setErr('') }}
+          className="input" placeholder="admin@khelofire.app" />
+        <label className="label mt-3 block text-left">Password</label>
+        <input type="password" value={pw} onChange={(e) => { setPw(e.target.value); setErr('') }} onKeyDown={(e) => e.key === 'Enter' && submit()}
+          className="input" placeholder="••••••••" />
+        {err && <p className="mt-2 text-xs font-semibold text-danger">{err}</p>}
+        <button onClick={submit} disabled={busy} className="btn-primary mt-4 w-full disabled:opacity-50">{busy ? 'Checking…' : 'Unlock'}</button>
         <button onClick={() => nav('/')} className="mt-2 w-full text-center text-sm text-muted">Cancel</button>
       </div>
     </div>
@@ -60,7 +80,8 @@ export default function Admin() {
   // actions
   const withdrawals = useStore((s) => s.withdrawals)
   const deposits = useStore((s) => s.deposits)
-  const { setUserStatus, deleteUser, adjustUserBalance, postAnnouncement, addBanner, removeBanner, toggleBanner, setBonusConfig, setPaymentConfig, setSiteConfig, setAdminSettings, changeAdminPin, addAdminUser, updateAdminRole, createAdminRole, adminReplyTicket, setTicketStatus, logAdminActivity, setWithdrawalStatus, setDepositStatus, setCategoryImage, removeCategoryImage, setGameModeImage, removeGameModeImage, adminLogout } = useStore.getState()
+  const { setUserStatus, deleteUser, adjustUserBalance, postAnnouncement, addBanner, removeBanner, toggleBanner, setBonusConfig, setPaymentConfig, setSiteConfig, setAdminSettings,
+    addAdminUser, updateAdminRole, createAdminRole, adminReplyTicket, setTicketStatus, logAdminActivity, setWithdrawalStatus, setDepositStatus, setCategoryImage, removeCategoryImage, setGameModeImage, removeGameModeImage, adminLogout } = useStore.getState()
 
   // live sign-ups: hydrate existing profiles + listen for INSERTs in realtime
   // (works after supabase/schema.sql is run in the dashboard)
@@ -101,13 +122,6 @@ export default function Admin() {
   const [tkReply, setTkReply] = useState('')
   const [roleDesc, setRoleDesc] = useState('')
   const [selRole, setSelRole] = useState<AdminRole | null>(null)
-  // security tab state
-  const [oldPin, setOldPin] = useState('')
-  const [newPin, setNewPin] = useState('')
-  const [confirmPin, setConfirmPin] = useState('')
-  const [showOldPin, setShowOldPin] = useState(false)
-  const [showNewPin, setShowNewPin] = useState(false)
-  const [showConfirmPin, setShowConfirmPin] = useState(false)
   // add user tab state
   const [newUserName, setNewUserName] = useState('')
   const [newUserEmail, setNewUserEmail] = useState('')
@@ -280,22 +294,13 @@ export default function Admin() {
         <div className="space-y-4">
           <div className="card p-4 space-y-3">
             <div className="flex items-center gap-2 text-sm font-bold"><Key className="h-4 w-4 text-gold" strokeWidth={2.2} />Change admin password</div>
-            <div className="relative">
-              <label className="label">Old password</label>
-              <input type={showOldPin ? 'text' : 'password'} className="input pr-10" value={oldPin} onChange={(e) => setOldPin(e.target.value)} placeholder="old password / PIN" />
-              <button onClick={() => setShowOldPin((v) => !v)} className="absolute right-2 top-[30px] text-muted" aria-label="toggle">{showOldPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
-            </div>
-            <div className="relative">
-              <label className="label">New password (min 4 chars — digits, words, spaces allowed)</label>
-              <input type={showNewPin ? 'text' : 'password'} className="input pr-10" value={newPin} onChange={(e) => setNewPin(e.target.value)} placeholder="e.g. khelo fire 2026" />
-              <button onClick={() => setShowNewPin((v) => !v)} className="absolute right-2 top-[30px] text-muted" aria-label="toggle">{showNewPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
-            </div>
-            <div className="relative">
-              <label className="label">Confirm new password</label>
-              <input type={showConfirmPin ? 'text' : 'password'} className="input pr-10" value={confirmPin} onChange={(e) => setConfirmPin(e.target.value)} placeholder="retype new password" />
-              <button onClick={() => setShowConfirmPin((v) => !v)} className="absolute right-2 top-[30px] text-muted" aria-label="toggle">{showConfirmPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}</button>
-            </div>
-            <button onClick={() => { if (newPin !== confirmPin) return toast('Passwords do not match', 'err'); if (changeAdminPin(oldPin, newPin)) { setOldPin(''); setNewPin(''); setConfirmPin(''); toast('Password changed ✓', 'ok') } else toast('Wrong old password or too short (min 4)', 'err') }} className="btn-primary w-full text-xs">Update password</button>
+            <p className="text-xs text-muted leading-relaxed">
+              Admin accounts live in Supabase Auth, so the password cannot be changed from inside the app.
+              Use{' '}
+              <span className="font-mono text-[11px]">supabase auth</span> / the Auth dashboard, or reset it from
+              your email. Roles are rows in the <span className="font-mono text-[11px]">staff</span> table —
+              a phone-side change would not be trusted anyway.
+            </p>
           </div>
           <div className="card p-4 space-y-3">
             <div className="flex items-center gap-2 text-sm font-bold"><Shield className="h-4 w-4 text-cyan2" strokeWidth={2.2} />Security settings</div>

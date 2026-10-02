@@ -1,8 +1,19 @@
-import { create } from 'zustand'
+﻿import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { toMinor } from './money'
+import { hasSupabase } from './supabase'
+import * as wallet from './wallet'
+import { notify, notifyError } from './notice'
 
-// Helper to convert file to base64 — auto-downscaled so big uploads can never
+/** true once Supabase keys exist â€” then money is decided by the server, not here */
+const liveMode = hasSupabase
+
+// sync.ts imports this file, so importing it back statically would be a cycle.
+// Load it on demand instead.
+const refreshFromServer = () =>
+  import('./sync').then((m) => m.loadUserData()).catch((e) => notifyError('Refresh failed', e))
+
+// Helper to convert file to base64 â€” auto-downscaled so big uploads can never
 // blow the ~5MB localStorage quota (which would silently break ALL saves)
 export const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -49,7 +60,7 @@ export interface Ledger {
   status: TxnStatus; ts: number; note: string
 }
 export interface MatchRecord {
-  id: string; game: GameKey; mode: string; entryMinor: number; prizeMinor: number
+  id: string; game: GameKey; mode: string; modeId: string; entryMinor: number; prizeMinor: number
   outcome: Outcome; deltaMinor: number; ts: number; moves?: number
 }
 export interface Notif { id: string; type: string; titleBn: string; titleEn: string; ts: number; read: boolean }
@@ -96,7 +107,11 @@ export interface AdminBanner { id: string; titleEn: string; titleBn: string; url
 export interface BonusConfig { welcomeMinor: number; referralMinor: number; dailyMinor: number; depositPct: number }
 export interface PaymentConfig { provider: string; merchantId: string; apiKey: string; enabled: boolean }
 export interface SiteConfig { maintenance: boolean; minWithdrawMinor: number; voiceFee: boolean; chessEnabled: boolean }
-export interface AdminSettings { adminPin: string; sessionTimeout: number; maxLoginAttempts: number; lockoutDuration: number; require2FA: boolean; auditLogRetentionDays: number; failedAttempts?: number; lockUntil?: number }
+// NOTE: no adminPin. The old settings object carried the admin password in
+// plain localStorage, so anyone could read it from their own phone (and
+// /admin-access?pin=4321 was a public URL). Admin access is now decided by the
+// server from the `staff` table - see src/lib/auth.ts adminSignIn.
+export interface AdminSettings { sessionTimeout: number; maxLoginAttempts: number; lockoutDuration: number; require2FA: boolean; auditLogRetentionDays: number }
 export interface CategoryImageConfig { freefire?: string; ingame?: string; ludoking?: string }
 export interface GameModeImageConfig { [modeId: string]: { backgroundImage?: string; thumbnailImage?: string } }
 
@@ -119,6 +134,7 @@ interface DemoState {
   dismissedAnnId: string | null
   // admin
   isAdmin: boolean
+  staffRole: string | null
   adminSession: boolean
   adminUsers: AdminUser[]
   adminRoles: AdminRole[]
@@ -141,9 +157,9 @@ interface DemoState {
   postAnnouncement: (a: Omit<Announcement, 'id' | 'ts'>) => void
   dismissAnnouncement: (id: string) => void
   // admin actions
-  adminLogin: (pin: string) => boolean
+  adminSignIn: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>
   adminLogout: () => void
-  setAdminSession: (enabled: boolean) => void
+  setStaffRole: (role: string | null) => void
   setUserStatus: (id: string, status: AdminUser['status']) => void
   deleteUser: (id: string) => void
   adjustUserBalance: (id: string, deltaMinor: number) => void
@@ -154,8 +170,7 @@ interface DemoState {
   setPaymentConfig: (patch: Partial<PaymentConfig>) => void
   setSiteConfig: (patch: Partial<SiteConfig>) => void
   setAdminSettings: (patch: Partial<AdminSettings>) => void
-  changeAdminPin: (oldPin: string, newPin: string) => boolean
-  addAdminUser: (user: Omit<AdminUser, 'id' | 'joined'>) => void
+  addAdminUser: (u: Omit<AdminUser, 'id' | 'joined'>) => void
   updateAdminRole: (userId: string, role: AdminUser['role']) => void
   createAdminRole: (name: string, description: string) => void
   adminReplyTicket: (id: string, text: string) => void
@@ -166,11 +181,11 @@ interface DemoState {
   removeCategoryImage: (key: keyof CategoryImageConfig) => void
   setGameModeImage: (modeId: string, patch: { backgroundImage?: string; thumbnailImage?: string }) => void
   removeGameModeImage: (modeId: string) => void
-  addMoney: (taka: number, method?: string) => boolean
-  setDepositStatus: (id: string, status: Deposit['status']) => void
+  addMoney: (taka: number, method?: string) => Promise<boolean>
+  setDepositStatus: (id: string, status: Deposit['status']) => Promise<void>
   unlockEntry: (minor: number, note: string) => void
-  withdraw: (taka: number, method?: string) => boolean
-  setWithdrawalStatus: (id: string, status: Withdrawal['status']) => void
+  withdraw: (taka: number, method?: string) => Promise<boolean>
+  setWithdrawalStatus: (id: string, status: Withdrawal['status']) => Promise<void>
   lockEntry: (minor: number, note: string) => boolean
   settle: (rec: Omit<MatchRecord, 'id' | 'ts'>) => void
   markNotifsRead: () => void
@@ -181,15 +196,15 @@ const uid = () => Math.random().toString(36).slice(2, 10)
 const txn = () => 'TXN' + Date.now().toString(36).toUpperCase() + uid().slice(0, 4).toUpperCase()
 
 const seedNotifs: Notif[] = [
-  { id: uid(), type: 'welcome', titleBn: 'স্বাগতম! খেলা শুরু করুন', titleEn: 'Welcome! Start playing', ts: Date.now(), read: false },
-  { id: uid(), type: 'tournament', titleBn: 'নতুন লুডু টুর্নামেন্ট লাইভ', titleEn: 'New Ludo tournament live', ts: Date.now() - 3600e3, read: false },
+  { id: uid(), type: 'welcome', titleBn: 'à¦¸à§à¦¬à¦¾à¦—à¦¤à¦®! à¦–à§‡à¦²à¦¾ à¦¶à§à¦°à§ à¦•à¦°à§à¦¨', titleEn: 'Welcome! Start playing', ts: Date.now(), read: false },
+  { id: uid(), type: 'tournament', titleBn: 'à¦¨à¦¤à§à¦¨ à¦²à§à¦¡à§ à¦Ÿà§à¦°à§à¦¨à¦¾à¦®à§‡à¦¨à§à¦Ÿ à¦²à¦¾à¦‡à¦­', titleEn: 'New Ludo tournament live', ts: Date.now() - 3600e3, read: false },
 ]
 
 const initial = {
   authed: false, // open app browses freely; login is required only to play/join a match
   username: '',
   playerId: 'KV' + Math.floor(100000 + Math.random() * 899999),
-  avatar: '🦁',
+  avatar: 'ðŸ¦',
   referralCode: 'KV' + uid().slice(0, 6).toUpperCase(),
   availableMinor: toMinor(440),
   lockedMinor: 0,
@@ -204,10 +219,11 @@ const initial = {
   ] as Referral[],
   referralEarnedMinor: toMinor(40),
   announcements: [
-    { id: uid(), titleBn: 'সাপ্তাহিক মেগা টুর্নামেন্ট!', titleEn: 'Weekly Mega Tournament!', bodyBn: 'শুক্রবার রাত ৯টায় — ৳5000 প্রাইজ পুল।', bodyEn: 'Friday 9PM — ৳5000 prize pool.', ts: Date.now() - 6 * 36e5 },
+    { id: uid(), titleBn: 'à¦¸à¦¾à¦ªà§à¦¤à¦¾à¦¹à¦¿à¦• à¦®à§‡à¦—à¦¾ à¦Ÿà§à¦°à§à¦¨à¦¾à¦®à§‡à¦¨à§à¦Ÿ!', titleEn: 'Weekly Mega Tournament!', bodyBn: 'à¦¶à§à¦•à§à¦°à¦¬à¦¾à¦° à¦°à¦¾à¦¤ à§¯à¦Ÿà¦¾à¦¯à¦¼ â€” à§³5000 à¦ªà§à¦°à¦¾à¦‡à¦œ à¦ªà§à¦²à¥¤', bodyEn: 'Friday 9PM â€” à§³5000 prize pool.', ts: Date.now() - 6 * 36e5 },
   ] as Announcement[],
   dismissedAnnId: null as string | null,
   isAdmin: false,
+  staffRole: null as string | null,
   adminSession: false,
   adminUsers: [
     { id: 'u1', name: 'Adnan Khan', email: 'adnan@demo.com', loginMethod: 'email' as const, balanceMinor: toMinor(440), status: 'active' as const, role: 'superadmin' as const, joined: Date.now() - 20 * 864e5, lastLogin: Date.now() },
@@ -223,7 +239,6 @@ const initial = {
   ] as AdminRole[],
   adminActivity: [] as AdminActivity[],
   adminSettings: { 
-    adminPin: '4321', 
     sessionTimeout: 30 * 60 * 1000, 
     maxLoginAttempts: 5, 
     lockoutDuration: 15 * 60 * 1000, 
@@ -231,8 +246,8 @@ const initial = {
     auditLogRetentionDays: 90 
   } as AdminSettings,
   banners: [
-    { id: uid(), titleEn: 'Play Ludo, Win Money!', titleBn: 'লুডু খেলুন, টাকা জিতুন!', url: '', active: true },
-    { id: uid(), titleEn: 'Refer a friend, get a bonus!', titleBn: 'বন্ধুকে আনুন, বোনাস নিন!', url: '', active: true },
+    { id: uid(), titleEn: 'Play Ludo, Win Money!', titleBn: 'à¦²à§à¦¡à§ à¦–à§‡à¦²à§à¦¨, à¦Ÿà¦¾à¦•à¦¾ à¦œà¦¿à¦¤à§à¦¨!', url: '', active: true },
+    { id: uid(), titleEn: 'Refer a friend, get a bonus!', titleBn: 'à¦¬à¦¨à§à¦§à§à¦•à§‡ à¦†à¦¨à§à¦¨, à¦¬à§‹à¦¨à¦¾à¦¸ à¦¨à¦¿à¦¨!', url: '', active: true },
   ] as AdminBanner[],
   bonusConfig: { welcomeMinor: toMinor(50), referralMinor: toMinor(20), dailyMinor: toMinor(5), depositPct: 5 } as BonusConfig,
   paymentConfig: { provider: 'bKash', merchantId: '', apiKey: '', enabled: false } as PaymentConfig,
@@ -248,7 +263,7 @@ export const useStore = create<DemoState>()(
     (set, get) => ({
       ...initial,
 
-      // login/signup → also upsert into adminUsers so the Admin panel shows
+      // login/signup â†’ also upsert into adminUsers so the Admin panel shows
       // every new sign-up instantly (real-time user list)
       login: (username) => set((s) => {
         const name = (username || s.username || '').trim() || 'Player'
@@ -280,7 +295,7 @@ export const useStore = create<DemoState>()(
         set((s) => ({ tickets: [ticket, ...s.tickets] }))
         // simulated support auto-reply
         setTimeout(() => set((s) => ({
-          tickets: s.tickets.map((tk) => tk.id === id ? { ...tk, status: 'answered', msgs: [...tk.msgs, { me: false, text: 'ধন্যবাদ! আমাদের সাপোর্ট টিম শীঘ্রই দেখছে। / Thanks! Our support team is on it and will reply shortly.', ts: Date.now() }] } : tk),
+          tickets: s.tickets.map((tk) => tk.id === id ? { ...tk, status: 'answered', msgs: [...tk.msgs, { me: false, text: 'à¦§à¦¨à§à¦¯à¦¬à¦¾à¦¦! à¦†à¦®à¦¾à¦¦à§‡à¦° à¦¸à¦¾à¦ªà§‹à¦°à§à¦Ÿ à¦Ÿà¦¿à¦® à¦¶à§€à¦˜à§à¦°à¦‡ à¦¦à§‡à¦–à¦›à§‡à¥¤ / Thanks! Our support team is on it and will reply shortly.', ts: Date.now() }] } : tk),
         })), 1500)
         return id
       },
@@ -303,50 +318,59 @@ export const useStore = create<DemoState>()(
       dismissAnnouncement: (id) => set({ dismissedAnnId: id }),
 
       // ---- admin ----
-      adminLogin: (pin) => { 
-        const settings = get().adminSettings
-        if (settings.lockUntil && Date.now() < settings.lockUntil) {
-          get().logAdminActivity('admin_login_locked', 'auth', 'Login blocked — account temporarily locked')
-          return false
+      // Admin access is granted by the SERVER (the `staff` table), never by a
+      // password typed into the phone. The old adminLogin(pin) compared against
+      // a PIN stored in this same localStorage, so the "admin password" was
+      // readable by anyone holding the device and /admin-access?pin=4321 was a
+      // public URL that logged anyone in.
+      adminSignIn: async (email, password) => {
+        const { signIn } = await import('./auth')
+        const { fetchStaffRole } = await import('./wallet')
+        try {
+          await signIn(email, password)
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : 'Sign-in failed'
+          return { ok: false, error: msg }
         }
-        const ok = pin.trim() === settings.adminPin.trim()
-        if (ok) { 
-          set({ isAdmin: true, adminSession: true }) 
-          get().setAdminSettings({ failedAttempts: 0, lockUntil: 0 })
-          get().logAdminActivity('admin_login', 'auth', 'Admin logged in successfully')
-        } else {
-          const failed = (settings.failedAttempts || 0) + 1
-          const lock = failed >= settings.maxLoginAttempts
-          get().setAdminSettings({
-            failedAttempts: failed,
-            lockUntil: lock ? Date.now() + settings.lockoutDuration : settings.lockUntil || 0,
-          })
-          get().logAdminActivity('admin_login_failed', 'auth', `Failed login attempt (${failed}/${settings.maxLoginAttempts})${lock ? ' — locked' : ''}`)
+        const role = await fetchStaffRole()
+        if (!role) {
+          // signed in fine, but not staff - make sure we are not left in a
+          // half-authenticated admin state
+          const { signOutUser } = await import('./auth')
+          await signOutUser()
+          return { ok: false, error: 'This account is not an admin' }
         }
-        return ok 
+        set({ isAdmin: true, adminSession: true, staffRole: role })
+        get().logAdminActivity('admin_login', 'auth', `Signed in as ${role}`)
+        return { ok: true }
       },
-      adminLogout: () => { 
-        get().logAdminActivity('admin_logout', 'auth', 'Admin logged out')
-        set({ isAdmin: false, adminSession: false }) 
+      adminLogout: () => {
+        set({ isAdmin: false, adminSession: false, staffRole: null })
       },
-      // NOTE: long-press / quick shortcuts only set the *session* flag —
-      // the PIN gate stays closed. Only adminLogin() may set isAdmin.
-      setAdminSession: (enabled) => set({ adminSession: enabled }),
+      setStaffRole: (role) => set({ staffRole: role, isAdmin: !!role, adminSession: !!role }),
       setUserStatus: (id, status) => set((s) => ({ adminUsers: s.adminUsers.map((u) => u.id === id ? { ...u, status } : u) })),
       deleteUser: (id) => set((s) => ({ adminUsers: s.adminUsers.map((u) => u.id === id ? { ...u, status: 'deleted' as const } : u) })),
-      adjustUserBalance: (id, deltaMinor) => set((s) => {
-        const target = s.adminUsers.find((u) => u.id === id)
-        const adminUsers = s.adminUsers.map((u) => u.id === id ? { ...u, balanceMinor: Math.max(0, u.balanceMinor + deltaMinor) } : u)
-        // if the admin adjusted the signed-in player, move their REAL wallet too
-        if (target && target.name === s.username && deltaMinor !== 0) {
-          const available = Math.max(0, s.availableMinor + deltaMinor)
-          return {
-            adminUsers, availableMinor: available,
-            ledger: [{ id: txn(), type: (deltaMinor > 0 ? 'deposit' : 'withdrawal') as LedgerType, amountMinor: deltaMinor, balanceAfter: available, status: 'completed' as TxnStatus, ts: Date.now(), note: 'Admin balance adjustment' } as Ledger, ...s.ledger],
-          }
+      // Demo-mode only. When Supabase is live the database refuses client writes to
+      // available_minor, so a local edit here would just desync the screen from
+      // the real wallet - the admin must approve a deposit/withdrawal instead.
+      adjustUserBalance: (id, deltaMinor) => {
+        if (liveMode) {
+          notify('Balance changes must go through a deposit or withdrawal approval', 'err')
+          return
         }
-        return { adminUsers }
-      }),
+        set((s) => {
+          const target = s.adminUsers.find((u) => u.id === id)
+          const adminUsers = s.adminUsers.map((u) => u.id === id ? { ...u, balanceMinor: Math.max(0, u.balanceMinor + deltaMinor) } : u)
+          if (target && target.name === s.username && deltaMinor !== 0) {
+            const available = Math.max(0, s.availableMinor + deltaMinor)
+            return {
+              adminUsers, availableMinor: available,
+              ledger: [{ id: txn(), type: (deltaMinor > 0 ? 'deposit' : 'withdrawal') as LedgerType, amountMinor: deltaMinor, balanceAfter: available, status: 'completed' as TxnStatus, ts: Date.now(), note: 'Admin balance adjustment' } as Ledger, ...s.ledger],
+            }
+          }
+          return { adminUsers }
+        })
+      },
       addBanner: (b) => set((s) => ({ banners: [{ ...b, id: uid() }, ...s.banners] })),
       removeBanner: (id) => set((s) => ({ banners: s.banners.filter((b) => b.id !== id) })),
       toggleBanner: (id) => set((s) => ({ banners: s.banners.map((b) => b.id === id ? { ...b, active: !b.active } : b) })),
@@ -354,16 +378,9 @@ export const useStore = create<DemoState>()(
       setPaymentConfig: (patch) => set((s) => ({ paymentConfig: { ...s.paymentConfig, ...patch } })),
       setSiteConfig: (patch) => set((s) => ({ siteConfig: { ...s.siteConfig, ...patch } })),
       setAdminSettings: (patch) => set((s) => ({ adminSettings: { ...s.adminSettings, ...patch } })),
-      changeAdminPin: (oldPin, newPin) => { 
-        const settings = get().adminSettings
-        const oldOk = oldPin.trim() === settings.adminPin.trim()
-        const next = newPin.trim()
-        if (!oldOk) return false
-        if (next.length < 4) return false
-        get().setAdminSettings({ adminPin: next })
-        get().logAdminActivity('admin_pin_changed', 'security', 'Admin password changed successfully')
-        return true 
-      },
+      // changeAdminPin is gone on purpose: the admin password now lives in
+      // Supabase Auth and the role in the `staff` table. Neither can be changed
+      // from the phone - that is the point.
       addAdminUser: (user) => set((s) => ({ adminUsers: [{ ...user, id: uid(), joined: Date.now(), lastLogin: Date.now() }, ...s.adminUsers] })),
       updateAdminRole: (userId, role) => set((s) => ({ adminUsers: s.adminUsers.map((u) => u.id === userId ? { ...u, role } : u) })),
       createAdminRole: (name, description) => {
@@ -390,80 +407,137 @@ export const useStore = create<DemoState>()(
       setGameModeImage: (modeId, patch) => set((s) => ({ gameModeImages: { ...s.gameModeImages, [modeId]: { ...s.gameModeImages[modeId], ...patch } } })),
       removeGameModeImage: (modeId) => set((s) => { const n = { ...s.gameModeImages }; delete n[modeId]; return { gameModeImages: n } }),
 
-      // Add money = deposit REQUEST. Nothing is credited until payment is
-      // verified (admin approves the matching payment in the Payments tab).
-      addMoney: (taka, method = 'bKash') => {
+      // Add money = deposit REQUEST. Nothing is credited until an admin approves it.
+      // In live mode the row is created by request_deposit() so the amount is
+      // validated server-side; the local list is only a mirror for the UI.
+      addMoney: async (taka, method = 'bKash') => {
         const amt = toMinor(taka)
         if (amt <= 0) return false
-        const id = txn()
-        const user = get().username
-        set((s) => ({
-          deposits: [{ id, user, amountMinor: amt, method, status: 'pending', ts: Date.now() }, ...s.deposits],
-          ledger: [{ id, type: 'deposit', amountMinor: amt, balanceAfter: get().availableMinor, status: 'pending', ts: Date.now(), note: `Deposit request · ${method}` }, ...s.ledger],
-        }))
-        get().logAdminActivity('deposit_request', 'payments', `${user} · ${method} · ${taka}`)
-        return true
+        if (!liveMode) {
+          const id = txn()
+          const user = get().username
+          set((s) => ({
+            deposits: [{ id, user, amountMinor: amt, method, status: 'pending', ts: Date.now() }, ...s.deposits],
+            ledger: [{ id, type: 'deposit', amountMinor: amt, balanceAfter: get().availableMinor, status: 'pending', ts: Date.now(), note: `Deposit request Â· ${method}` }, ...s.ledger],
+          }))
+          get().logAdminActivity('deposit_request', 'payments', `${user} Â· ${method} Â· ${taka}`)
+          return true
+        }
+        try {
+          const id = await wallet.requestDeposit(amt, method, '')
+          if (!id) return false
+          const user = get().username
+          set((s) => ({
+            deposits: [{ id, user, amountMinor: amt, method, status: 'pending', ts: Date.now() }, ...s.deposits],
+            ledger: [{ id, type: 'deposit', amountMinor: amt, balanceAfter: s.availableMinor, status: 'pending', ts: Date.now(), note: 'deposit request' } as Ledger, ...s.ledger],
+          }))
+          notify('Deposit request sent', 'ok')
+          return true
+        } catch (e) {
+          notifyError('Deposit request failed', e)
+          return false
+        }
       },
-      setDepositStatus: (id, status) => {
+      setDepositStatus: async (id, status) => {
         const d = get().deposits.find((x) => x.id === id)
         if (!d || d.status !== 'pending') return
-        if (status === 'approved') {
-          const bonusPct = get().bonusConfig.depositPct || 0
-          const bonus = Math.round(d.amountMinor * bonusPct / 100)
-          const available = get().availableMinor + d.amountMinor + bonus
+        if (!liveMode) {
+          if (status === 'approved') {
+            const bonusPct = get().bonusConfig.depositPct || 0
+            const bonus = Math.round(d.amountMinor * bonusPct / 100)
+            const available = get().availableMinor + d.amountMinor + bonus
+            set((s) => ({
+              availableMinor: available,
+              deposits: s.deposits.map((x) => x.id === id ? { ...x, status } : x),
+              ledger: s.ledger.map((l) => l.id === id ? { ...l, balanceAfter: available, status: 'completed' as const } : l),
+            }))
+          } else {
+            set((s) => ({
+              deposits: s.deposits.map((x) => x.id === id ? { ...x, status } : x),
+              ledger: s.ledger.map((l) => l.id === id ? { ...l, status: 'failed' as const } : l),
+            }))
+          }
+          return
+        }
+        try {
+          await wallet.decideMoneyRequest('deposit', id, status === 'approved')
           set((s) => ({
-            availableMinor: available,
             deposits: s.deposits.map((x) => x.id === id ? { ...x, status } : x),
-            ledger: [
-              ...(bonus > 0 ? [{ id: txn(), type: 'welcome' as LedgerType, amountMinor: bonus, balanceAfter: available, status: 'completed' as TxnStatus, ts: Date.now(), note: `Deposit bonus ${bonusPct}%` } as Ledger] : []),
-              ...s.ledger.map((l) => l.id === id ? { ...l, balanceAfter: available, status: 'completed' as const } : l),
-            ],
+            ledger: s.ledger.map((l) => l.id === id ? { ...l, status: status === 'approved' ? 'completed' as const : 'failed' as const } : l),
           }))
-          get().logAdminActivity('deposit_approve', 'payments', `${d.user} · ${d.method} · ${d.amountMinor / 100}`)
-        } else {
-          set((s) => ({
-            deposits: s.deposits.map((x) => x.id === id ? { ...x, status } : x),
-            ledger: s.ledger.map((l) => l.id === id ? { ...l, status: 'failed' as const } : l),
-          }))
-          get().logAdminActivity('deposit_reject', 'payments', `${d.user} · ${d.method} · ${d.amountMinor / 100}`)
+          if (status === 'approved') void refreshFromServer() // pick up the new balance
+          notify(status === 'approved' ? 'Deposit approved' : 'Deposit rejected', 'ok')
+        } catch (e) {
+          notifyError('Could not update the deposit', e)
         }
       },
 
-      withdraw: (taka, method = 'bKash') => {
+      withdraw: async (taka, method = 'bKash') => {
         const amt = toMinor(taka)
         if (amt <= 0 || amt > get().availableMinor) return false
         if (amt < get().siteConfig.minWithdrawMinor) return false
-        const balanceAfter = get().availableMinor - amt
-        const id = txn()
-        const user = get().username
-        set((s) => ({
-          availableMinor: balanceAfter,
-          ledger: [{ id, type: 'withdrawal', amountMinor: -amt, balanceAfter, status: 'pending', ts: Date.now(), note: `Withdrawal · ${method}` }, ...s.ledger],
-          withdrawals: [{ id, user, amountMinor: amt, method, status: 'pending', ts: Date.now() }, ...s.withdrawals],
-        }))
-        get().logAdminActivity('withdraw_request', 'payments', `${user} · ${method} · ${amt / 100}`)
-        return true
+        if (!liveMode) {
+          const balanceAfter = get().availableMinor - amt
+          const id = txn()
+          const user = get().username
+          set((s) => ({
+            availableMinor: balanceAfter,
+            ledger: [{ id, type: 'withdrawal', amountMinor: -amt, balanceAfter, status: 'pending', ts: Date.now(), note: `Withdrawal Â· ${method}` }, ...s.ledger],
+            withdrawals: [{ id, user, amountMinor: amt, method, status: 'pending', ts: Date.now() }, ...s.withdrawals],
+          }))
+          return true
+        }
+        try {
+          // the server debits the balance immediately so the same money cannot
+          // be requested twice, and refunds on rejection
+          const id = await wallet.requestWithdrawal(amt, method, '')
+          if (!id) return false
+          const user = get().username
+          const balanceAfter = get().availableMinor - amt
+          set((s) => ({
+            availableMinor: balanceAfter,
+            ledger: [{ id, type: 'withdrawal', amountMinor: -amt, balanceAfter, status: 'pending', ts: Date.now(), note: 'withdrawal request' } as Ledger, ...s.ledger],
+            withdrawals: [{ id, user, amountMinor: amt, method, status: 'pending', ts: Date.now() }, ...s.withdrawals],
+          }))
+          notify('Withdrawal requested', 'ok')
+          return true
+        } catch (e) {
+          notifyError('Withdrawal request failed', e)
+          return false
+        }
       },
-      setWithdrawalStatus: (id, status) => {
+      setWithdrawalStatus: async (id, status) => {
         const w = get().withdrawals.find((x) => x.id === id)
         if (!w || w.status !== 'pending') return
-        if (status === 'approved') {
+        if (!liveMode) {
+          if (status === 'approved') {
+            set((s) => ({
+              withdrawals: s.withdrawals.map((x) => x.id === id ? { ...x, status } : x),
+              ledger: s.ledger.map((l) => l.id === id ? { ...l, status: 'completed' as const } : l),
+            }))
+          } else if (status === 'rejected') {
+            const available = get().availableMinor + w.amountMinor
+            set((s) => ({
+              availableMinor: available,
+              withdrawals: s.withdrawals.map((x) => x.id === id ? { ...x, status } : x),
+              ledger: [
+                { id: txn(), type: 'refund_credit', amountMinor: w.amountMinor, balanceAfter: available, status: 'refunded' as const, ts: Date.now(), note: `Refund Â· withdrawal ${id.slice(-4)}` },
+                ...s.ledger.map((l) => l.id === id ? { ...l, status: 'failed' as const } : l),
+              ],
+            }))
+          }
+          return
+        }
+        try {
+          await wallet.decideMoneyRequest('withdrawal', id, status === 'approved')
           set((s) => ({
             withdrawals: s.withdrawals.map((x) => x.id === id ? { ...x, status } : x),
-            ledger: s.ledger.map((l) => l.id === id ? { ...l, status: 'completed' as const } : l),
+            ledger: s.ledger.map((l) => l.id === id ? { ...l, status: status === 'approved' ? 'completed' as const : 'refunded' as const } : l),
           }))
-          get().logAdminActivity('withdraw_approve', 'payments', `${w.user} · ${w.method} · ${w.amountMinor / 100}`)
-        } else if (status === 'rejected') {
-          const available = get().availableMinor + w.amountMinor
-          set((s) => ({
-            availableMinor: available,
-            withdrawals: s.withdrawals.map((x) => x.id === id ? { ...x, status } : x),
-            ledger: [
-              { id: txn(), type: 'refund_credit', amountMinor: w.amountMinor, balanceAfter: available, status: 'refunded' as const, ts: Date.now(), note: `Refund · withdrawal ${id.slice(-4)}` },
-              ...s.ledger.map((l) => l.id === id ? { ...l, status: 'failed' as const } : l),
-            ],
-          }))
-          get().logAdminActivity('withdraw_reject', 'payments', `${w.user} · refunded ${w.amountMinor / 100}`)
+          if (status === 'rejected') void refreshFromServer() // server refunded it
+          notify(status === 'approved' ? 'Withdrawal approved' : 'Withdrawal rejected + refunded', 'ok')
+        } catch (e) {
+          notifyError('Could not update the withdrawal', e)
         }
       },
 
@@ -492,24 +566,29 @@ export const useStore = create<DemoState>()(
         return true
       },
 
-      // Settle a finished match: unlock entry, apply prize/refund, record history + stats
+      // Settle a finished match: unlock entry, apply prize/refund, record history + stats.
+      // Live mode: the numbers shown immediately are optimistic, then
+      // settle_match() re-derives entry/prize from match_modes and returns the
+      // authoritative balance. If the server disagrees, the local edit is rolled
+      // back so the screen never shows money the server did not grant.
       settle: (rec) => {
+        const before = { availableMinor: get().availableMinor, lockedMinor: get().lockedMinor }
         set((s) => {
           const locked = Math.max(0, s.lockedMinor - rec.entryMinor)
           let available = s.availableMinor
           const entries: Ledger[] = []
           if (rec.outcome === 'win') {
             available += rec.prizeMinor
-            entries.push({ id: txn(), type: 'prize_credit', amountMinor: rec.prizeMinor, balanceAfter: available, status: 'completed', ts: Date.now(), note: `Prize · ${rec.mode}` })
+            entries.push({ id: txn(), type: 'prize_credit', amountMinor: rec.prizeMinor, balanceAfter: available, status: 'completed', ts: Date.now(), note: `Prize Â· ${rec.mode}` })
           } else if (rec.outcome === 'cancelled' || rec.outcome === 'draw') {
             available += rec.entryMinor // refund entry
-            entries.push({ id: txn(), type: 'refund_credit', amountMinor: rec.entryMinor, balanceAfter: available, status: 'refunded', ts: Date.now(), note: `Refund · ${rec.mode}` })
+            entries.push({ id: txn(), type: 'refund_credit', amountMinor: rec.entryMinor, balanceAfter: available, status: 'refunded', ts: Date.now(), note: `Refund Â· ${rec.mode}` })
           }
           const match: MatchRecord = { ...rec, id: uid(), ts: Date.now() }
           const notif: Notif = {
             id: uid(), type: 'result',
-            titleBn: rec.outcome === 'win' ? 'অভিনন্দন! আপনি জিতেছেন' : rec.outcome === 'draw' ? 'ম্যাচ ড্র হয়েছে' : rec.outcome === 'cancelled' ? 'ম্যাচ বাতিল — ফেরত দেওয়া হয়েছে' : 'ম্যাচ শেষ',
-            titleEn: rec.outcome === 'win' ? 'Congrats! You won' : rec.outcome === 'draw' ? 'Match drawn' : rec.outcome === 'cancelled' ? 'Match cancelled — refunded' : 'Match finished',
+            titleBn: rec.outcome === 'win' ? 'à¦…à¦­à¦¿à¦¨à¦¨à§à¦¦à¦¨! à¦†à¦ªà¦¨à¦¿ à¦œà¦¿à¦¤à§‡à¦›à§‡à¦¨' : rec.outcome === 'draw' ? 'à¦®à§à¦¯à¦¾à¦š à¦¡à§à¦° à¦¹à¦¯à¦¼à§‡à¦›à§‡' : rec.outcome === 'cancelled' ? 'à¦®à§à¦¯à¦¾à¦š à¦¬à¦¾à¦¤à¦¿à¦² â€” à¦«à§‡à¦°à¦¤ à¦¦à§‡à¦“à¦¯à¦¼à¦¾ à¦¹à¦¯à¦¼à§‡à¦›à§‡' : 'à¦®à§à¦¯à¦¾à¦š à¦¶à§‡à¦·',
+            titleEn: rec.outcome === 'win' ? 'Congrats! You won' : rec.outcome === 'draw' ? 'Match drawn' : rec.outcome === 'cancelled' ? 'Match cancelled â€” refunded' : 'Match finished',
             ts: Date.now(), read: false,
           }
           return {
@@ -523,6 +602,26 @@ export const useStore = create<DemoState>()(
             notifs: [notif, ...s.notifs],
           }
         })
+
+        if (!liveMode) return
+        void (async () => {
+          try {
+            const r = await wallet.settleMatch(rec.game, rec.modeId, rec.outcome)
+            if (!r) return
+            // adopt the server's numbers
+            set((s) => ({
+              availableMinor: r.available_minor,
+              matches: s.matches.map((m) => m.id.startsWith('local-') || s.matches[0]?.id === m.id
+                ? { ...m, entryMinor: r.entry_minor, prizeMinor: r.prize_minor, deltaMinor: r.delta_minor }
+                : m),
+            }))
+          } catch (e) {
+            // server said no - undo the optimistic payout rather than showing
+            // a balance that does not exist server-side
+            set({ availableMinor: before.availableMinor, lockedMinor: before.lockedMinor })
+            notifyError('Match could not be settled', e)
+          }
+        })()
       },
 
       markNotifsRead: () => set((s) => ({ notifs: s.notifs.map((n) => ({ ...n, read: true })) })),
@@ -530,9 +629,27 @@ export const useStore = create<DemoState>()(
     }),
     {
       name: 'kv-demo-store',
-      version: 1,
-      // migration: never keep the old seeded demo name for logged-out visitors
-      migrate: (s: any) => ({ ...s, username: s?.authed ? s.username : '' }),
+      version: 2,
+      // In live mode `authed` is NOT persisted. It used to be, which meant a
+      // force-stop reopened the app already "signed in" as whoever the last
+      // session was - the client saw a logged-in "Google User" they had never
+      // logged in as. The Supabase session is the only thing allowed to say
+      // "logged in" now. Demo mode (no Supabase keys) still persists, because
+      // there is no session to restore from.
+      partialize: (s) => {
+        if (!liveMode) return s
+        const { authed, ...rest } = s
+        return rest
+      },
+      // drop the stale identity that the old version left behind
+      migrate: (s: any) => ({
+        ...s,
+        authed: liveMode ? false : s?.authed,
+        username: liveMode ? '' : s?.authed ? s.username : '',
+        staffRole: null,
+        isAdmin: false,
+        adminSession: false,
+      }),
     }
   )
 )

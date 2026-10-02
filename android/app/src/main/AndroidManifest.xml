@@ -22,6 +22,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Google OAuth returns here. Without this filter the browser
+                 finishes the login and then has no way to get back into the
+                 APK, which is why sign-in silently did nothing. The scheme
+                 must match VITE_OAUTH_REDIRECT / oauthRedirectUrl() in
+                 src/lib/auth.ts. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="khelofire" />
+            </intent-filter>
+
         </activity>
 
         <provider
@@ -40,4 +52,14 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+    <!-- Android 11+ package visibility: without this the WebView cannot resolve
+         a browser to hand the Google OAuth redirect to. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <category android:name="android.intent.category.BROWSABLE" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
 </manifest>
