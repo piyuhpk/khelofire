@@ -62,16 +62,34 @@ for (const num of [2, 4]) {
   if (stuck > 0) bad(`${num}p: ${stuck} games never ended within 4000 steps (gameplay deadlock)`)
 }
 
-console.log('=== LUDO: capture does not hit safe cells ===')
+console.log('=== LUDO: capture on an unsafe cell sends the victim home ===')
+{
+  // The previous version of this check computed absTarget from a position the
+  // mover never visited and then guarded on SAFE_ABS.has(...), so it asserted
+  // nothing at all. Drive it from where applyMove actually lands.
+  const s = initLudo(4)
+  s.tokens = [[1, 0, 0, 0], [46, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]] // abs 6 and abs 6
+  const landed = ringAbs(0, 7)
+  const victimCell = ringAbs(1, 46)
+  if (landed === null || victimCell !== landed) bad(`test setup wrong: mover lands on abs ${landed}, victim sits on abs ${victimCell}`)
+  if (SAFE_ABS.has(landed!)) bad(`test setup wrong: abs ${landed} is a safe cell, cannot test capture there`)
+  const res = applyMove(s, 0, 0, 6) // pos 1 + 6 = pos 7
+  const ok = res.captured && res.state.tokens[0][0] === 7 && res.state.tokens[1][0] === 0
+  console.log(`  abs ${landed} (safe=${SAFE_ABS.has(landed!)}): mover -> pos ${res.state.tokens[0][0]}, victim pos 46 -> ${res.state.tokens[1][0]}, captured=${res.captured}`)
+  if (!ok) bad(`capture did not send the victim home on unsafe abs ${landed}`)
+  if (!res.extraTurn) bad('a capture must grant an extra turn')
+}
+
+console.log('=== LUDO: a token on a safe cell is NOT captured ===')
 {
   const s = initLudo(4)
-  s.tokens = [[0, 0, 0, 0], [14, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]]
-  const absTarget = ringAbs(0, 15)
-  const victim = (14 - START_OFFSET[1]) % 52 + 1
-  s.tokens[1][0] = victim
-  const res = applyMove(s, 0, 0, 6)
-  console.log(`  moved red onto abs ${absTarget} (safe=${SAFE_ABS.has(absTarget)}), victim pos ${victim} -> ${res.state.tokens[1][0]}`)
-  if (SAFE_ABS.has(absTarget) && res.state.tokens[1][0] === 0) bad('capture happened on a safe cell')
+  s.tokens = [[1, 0, 0, 0], [48, 0, 0, 0], [0, 0, 0, 0], [0, 0, 0, 0]] // mover to abs 8, victim on abs 8
+  const landed = ringAbs(0, 9)
+  if (landed === null || !SAFE_ABS.has(landed)) bad(`test setup wrong: abs ${landed} is not a safe cell`)
+  const res = applyMove(s, 0, 0, 8) // pos 1 + 8 = pos 9
+  const ok = !res.captured && res.state.tokens[1][0] === 48
+  console.log(`  abs ${landed} (safe=${SAFE_ABS.has(landed!)}): mover -> pos ${res.state.tokens[0][0]}, victim pos 48 -> ${res.state.tokens[1][0]}, captured=${res.captured}`)
+  if (!ok) bad(`a token sitting on safe abs ${landed} was captured, which is illegal`)
 }
 
 console.log('=== LUDO: every token renders inside the board, centred on a cell ===')

@@ -55,6 +55,7 @@ export default function LudoGame() {
   const [st, setSt] = useState<LudoState>(() => initLudo(m?.players ?? 2))
   const [legal, setLegal] = useState<number[]>([])
   const [rolling, setRolling] = useState(false)
+  const [botDice, setBotDice] = useState<number | null>(null)
   const [msg, setMsg] = useState('')
   const [timer, setTimer] = useState(20)
   const [result, setResult] = useState<Outcome | null>(null)
@@ -89,26 +90,48 @@ export default function LudoGame() {
     return () => clearInterval(id)
   }, [yourTurn, st.rolled]) // eslint-disable-line
 
-  // bot turns (also drives a bot's extra turns because dice returns to null each move)
+  // Bot turn.
+  //
+  // This must commit in ONE state update. It used to be split across two
+  // timeouts: the first one set dice/rolled, which changed the deps below, so
+  // React ran this effect's cleanup (setting alive = false) and then the
+  // second timeout saw !alive and returned. The bot showed its die and never
+  // moved, leaving state { rolled: true, turn: bot } that nothing could advance
+  // - the board froze forever after the player's move. One timer, one update.
   useEffect(() => {
     const p = st.turn
     if (result || st.winner !== null || p === 0 || st.rolled || st.dice !== null) return
     let alive = true
-    const t1 = setTimeout(() => {
+    const id = setTimeout(() => {
       if (!alive) return
       const d = rollDice()
-      if (d === 6 && st.sixes >= 2) { setSt((s) => ({ ...s, dice: null, rolled: false, sixes: 0, turn: nextActive(s, p) })); return }
-      setSt((s) => ({ ...s, dice: d, rolled: true, sixes: d === 6 ? s.sixes + 1 : s.sixes }))
-      setTimeout(() => {
-        if (!alive) return
-        const cur: LudoState = { ...st, dice: d, rolled: true, sixes: d === 6 ? st.sixes + 1 : st.sixes }
-        const choice = botChoose(cur, p, d)
-        if (choice === null) { setSt((s) => ({ ...s, dice: null, rolled: false, sixes: 0, turn: nextActive(s, p) })); return }
-        setSt(applyMove(cur, p, choice, d).state)
-      }, 750)
-    }, 650)
-    return () => { alive = false; clearTimeout(t1) }
-  }, [st.turn, st.dice, st.rolled, st.winner, result]) // eslint-disable-line
+      if (d === 6 && st.sixes >= 2) {
+        setBotDice(d)
+        setSt((s) => ({ ...s, dice: null, rolled: false, sixes: 0, turn: nextActive(s, p) }))
+        return
+      }
+      const cur: LudoState = { ...st, dice: d, rolled: true, sixes: d === 6 ? st.sixes + 1 : st.sixes }
+      const choice = botChoose(cur, p, d)
+      setBotDice(d)
+      if (choice === null) {
+        setSt((s) => ({ ...s, dice: null, rolled: false, sixes: 0, turn: nextActive(s, p) }))
+        return
+      }
+      setSt(applyMove(cur, p, choice, d).state)
+    }, 900)
+    return () => { alive = false; clearTimeout(id) }
+  }, [st, result]) // eslint-disable-line
+
+  const pendingPass = useRef<number | null>(null)
+  // the "no legal move, pass the turn" timer must not outlive the match,
+  // otherwise it flips the turn after resign or after the result modal
+  useEffect(() => {
+    if (result && pendingPass.current !== null) {
+      clearTimeout(pendingPass.current)
+      pendingPass.current = null
+    }
+  }, [result])
+  useEffect(() => () => { if (pendingPass.current !== null) clearTimeout(pendingPass.current) }, [])
 
   const roll = () => {
     if (!yourTurn || rolling || st.rolled) return
@@ -120,8 +143,14 @@ export default function LudoGame() {
       const lg = legalTokens(st, 0, d)
       setSt((s) => ({ ...s, dice: d, rolled: true, sixes: d === 6 ? s.sixes + 1 : s.sixes }))
       setLegal(lg)
-      if (!lg.length) { setMsg(t('ludo.noMove')); setTimeout(() => setSt((s) => ({ ...s, dice: null, rolled: false, sixes: 0, turn: nextActive(s, 0) })), 850) }
-      else setMsg(t('ludo.selectToken'))
+      if (!lg.length) {
+        setMsg(t('ludo.noMove'))
+        if (pendingPass.current !== null) clearTimeout(pendingPass.current)
+        pendingPass.current = window.setTimeout(() => {
+          pendingPass.current = null
+          setSt((s) => ({ ...s, dice: null, rolled: false, sixes: 0, turn: nextActive(s, 0) }))
+        }, 850)
+      } else setMsg(t('ludo.selectToken'))
     }, 500)
   }
 
@@ -170,7 +199,7 @@ export default function LudoGame() {
             className={`relative z-10 -my-6 grid h-[68px] w-[68px] shrink-0 place-items-center rounded-full transition disabled:opacity-60 ${rolling ? 'animate-dice-tumble' : 'active:scale-95'}`}
             style={{ background: 'radial-gradient(circle at 50% 35%, #FFF7DF, #F3D98F 70%, #D9A93F 100%)', border: '3px solid #FFE9AE', boxShadow: '0 10px 22px -6px rgba(0,0,0,.75), inset 0 -3px 6px rgba(0,0,0,.18)' }}
             aria-label="roll dice">
-            <LudoDiceFace value={st.dice} />
+            <LudoDiceFace value={st.dice ?? (yourTurn ? null : botDice)} />
           </button>
 
           {/* Com */}
@@ -189,6 +218,9 @@ export default function LudoGame() {
           {result ? '' : yourTurn ? (st.rolled ? msg || t('ludo.selectToken') : t('ludo.yourTurn')) : `${nameFor(st.turn)} ${t('ludo.playing')}`}
         </p>
         {yourTurn && !st.rolled && <p className="mt-0.5 text-xs text-white/55 tnum">{timer} {t('ludo.secondsLeft')}</p>}
+        {!yourTurn && !result && st.winner === null && botDice !== null && (
+          <p className="mt-0.5 text-xs font-bold text-white/70">{nameFor(st.turn)} rolled {botDice}</p>
+        )}
       </div>
 
       <div className="px-3 pb-3 pt-1 flex gap-2">
