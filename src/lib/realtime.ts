@@ -86,24 +86,46 @@ export function useVoiceRoom(roomId: string | null) {
   const [on, setOn] = useState(false)
   const [level, setLevel] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  // how many peers we actually have a live connection to. Previously the UI only
+  // knew "mic is on", which reads identically whether the call connected, failed,
+  // or never found anyone - so there was no way to tell a working voice chat from
+  // a dead one.
+  const [peerCount, setPeerCount] = useState(0)
+  const [live, setLive] = useState(false)
   const pcs = useRef(new Map<string, RTCPeerConnection>())
+  // ICE that arrived before the remote description did. addIceCandidate throws
+  // InvalidStateError in that state, and the catch used to swallow it, so the
+  // candidate was lost and the call simply never connected - which looks exactly
+  // like "voice chat does not work". Candidates are held here and replayed the
+  // moment the description lands.
+  const pendingIce = useRef(new Map<string, RTCIceCandidateInit[]>())
+  // <audio> elements are created on track, so cleanup has to be able to reach them
+  const audios = useRef(new Set<HTMLAudioElement>())
   const streamRef = useRef<MediaStream | null>(null)
   const ctxRef = useRef<AudioContext | null>(null)
   const rafRef = useRef(0)
   const chRef = useRef<ReturnType<NonNullable<typeof supabase>['channel']> | null>(null)
   const onRef = useRef(false)
+  // a second tap while getUserMedia is still pending would open a second mic
+  const starting = useRef(false)
   useEffect(() => { onRef.current = on }, [on])
 
   const cleanup = useCallback(() => {
     cancelAnimationFrame(rafRef.current)
     pcs.current.forEach((pc) => { try { pc.close() } catch {} })
     pcs.current.clear()
+    pendingIce.current.clear()
+    audios.current.forEach((a) => {
+      try { a.pause(); a.srcObject = null; a.remove() } catch {}
+    })
+    audios.current.clear()
     streamRef.current?.getTracks().forEach((t) => { try { t.stop() } catch {} })
     streamRef.current = null
     try { ctxRef.current?.close() } catch {}
     ctxRef.current = null
     if (chRef.current && supabase) { try { supabase.removeChannel(chRef.current) } catch {} chRef.current = null }
-    setOn(false); setLevel(0)
+    starting.current = false
+    setOn(false); setLevel(0); setPeerCount(0); setLive(false)
   }, [])
 
   useEffect(() => cleanup, [cleanup])
@@ -112,17 +134,20 @@ export function useVoiceRoom(roomId: string | null) {
   // returns null = success/off, otherwise error code ('mic-denied' | 'mic-unsupported' | 'insecure')
   const toggle = useCallback(async (): Promise<string | null> => {
     if (onRef.current) { cleanup(); return null }
+    if (starting.current) return null // a tap already in flight
+    starting.current = true
     setError(null)
     // mic is blocked on plain-HTTP origins (e.g. http://192.168.x.x) — only
     // https:// or localhost are secure contexts. Surface it honestly.
-    if (typeof window !== 'undefined' && window.isSecureContext === false) { setError('insecure'); return 'insecure' }
-    if (!navigator.mediaDevices?.getUserMedia) { setError('mic-unsupported'); return 'mic-unsupported' }
+    if (typeof window !== 'undefined' && window.isSecureContext === false) { starting.current = false; setError('insecure'); return 'insecure' }
+    if (!navigator.mediaDevices?.getUserMedia) { starting.current = false; setError('mic-unsupported'); return 'mic-unsupported' }
     let mic: MediaStream
     try {
       mic = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } })
     } catch (e) {
       const name = (e as DOMException)?.name
       const code = name === 'NotFoundError' || name === 'OverconstrainedError' ? 'mic-unsupported' : 'mic-denied'
+      starting.current = false
       setError(code)
       return code
     }
@@ -162,12 +187,51 @@ export function useVoiceRoom(roomId: string | null) {
         pc.ontrack = (e) => {
           try {
             const audio = new Audio()
-            audio.srcObject = e.streams[0]
-            audio.play().catch(() => {})
+            // playsInline matters inside the APK: without it Android's WebView
+            // treats the stream as a fullscreen video and never plays it as audio.
+            // Real and widely supported, but missing from the DOM lib's types.
+            ;(audio as HTMLAudioElement & { playsInline?: boolean }).playsInline = true
+            audio.autoplay = true
+            audio.srcObject = e.streams[0] ?? new MediaStream([e.track])
+            audios.current.add(audio)
+            audio.play().catch(() => {
+              // autoplay refused. The transient user gesture from tapping the mic
+              // button has usually expired by the time a remote track lands, so
+              // retry on the next interaction instead of dropping the call silently.
+              const retry = () => {
+                audio.play().catch(() => {})
+                window.removeEventListener('pointerdown', retry)
+                window.removeEventListener('keydown', retry)
+              }
+              window.addEventListener('pointerdown', retry, { once: true })
+              window.addEventListener('keydown', retry, { once: true })
+            })
           } catch {}
+        }
+        // a peer that dies was still counted as connected forever, and its audio
+        // element kept a dead stream attached
+        pc.onconnectionstatechange = () => {
+          if (pc.connectionState === 'failed' || pc.connectionState === 'closed' || pc.connectionState === 'disconnected') {
+            pcs.current.delete(remoteId)
+            pendingIce.current.delete(remoteId)
+            setPeerCount(pcs.current.size)
+            setLive(pcs.current.size > 0)
+          } else if (pc.connectionState === 'connected') {
+            setPeerCount(pcs.current.size)
+            setLive(true)
+          }
         }
         pcs.current.set(remoteId, pc)
         return pc
+      }
+      /** replay the ICE that arrived before we had anywhere to put it */
+      const flushIce = async (pc: RTCPeerConnection, remoteId: string) => {
+        const queued = pendingIce.current.get(remoteId)
+        if (!queued?.length) return
+        pendingIce.current.delete(remoteId)
+        for (const c of queued) {
+          try { await pc.addIceCandidate(c) } catch {}
+        }
       }
       ch.on('broadcast', { event: 'voice-join' }, async (msg: any) => {
         try {
@@ -183,6 +247,7 @@ export function useVoiceRoom(roomId: string | null) {
           if (msg.payload.to !== me) return
           const pc = mkPc(msg.payload.from)
           await pc.setRemoteDescription(msg.payload.sdp)
+          await flushIce(pc, msg.payload.from)
           const ans = await pc.createAnswer()
           await pc.setLocalDescription(ans)
           await ch.send({ type: 'broadcast', event: 'voice-answer', payload: { from: me, to: msg.payload.from, sdp: ans } })
@@ -192,14 +257,23 @@ export function useVoiceRoom(roomId: string | null) {
         try {
           if (msg.payload.to !== me) return
           const pc = pcs.current.get(msg.payload.from)
-          if (pc) await pc.setRemoteDescription(msg.payload.sdp)
+          if (!pc) return
+          await pc.setRemoteDescription(msg.payload.sdp)
+          await flushIce(pc, msg.payload.from)
         } catch {}
       })
       ch.on('broadcast', { event: 'ice' }, async (msg: any) => {
         try {
           if (msg.payload.to !== me) return
           const pc = pcs.current.get(msg.payload.from)
-          if (pc) await pc.addIceCandidate(msg.payload.ice)
+          // no connection yet, or no description on it: hold it rather than drop it
+          if (!pc || !pc.remoteDescription) {
+            const list = pendingIce.current.get(msg.payload.from) ?? []
+            list.push(msg.payload.ice)
+            pendingIce.current.set(msg.payload.from, list)
+            return
+          }
+          await pc.addIceCandidate(msg.payload.ice)
         } catch {}
       })
       await ch.subscribe()
@@ -210,5 +284,5 @@ export function useVoiceRoom(roomId: string | null) {
     return null
   }, [roomId, cleanup])
 
-  return { on, level, error, toggle }
+  return { on, level, error, toggle, peerCount, live }
 }

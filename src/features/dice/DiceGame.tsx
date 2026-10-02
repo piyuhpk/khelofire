@@ -96,7 +96,7 @@ export default function DiceGame() {
 
   return (
     <div className="app-frame flex min-h-[100dvh] flex-col" style={{ background: 'radial-gradient(120% 80% at 50% -10%,#3A1D6E 0%,#1A0E3A 55%,#0A0620 100%)' }}>
-      <GameHeader title="Dice Duel" prizeMinor={m!.prizeMinor} extra={<VoiceButton roomId={modeId ?? m!.id} />} gameType="dice" />
+      <GameHeader title="Dice Duel" prizeMinor={m!.prizeMinor} extra={<VoiceButton />} gameType="dice" />
 
       <div className="flex items-center justify-between px-5 py-3 text-white">
         <div className="flex items-center gap-2"><span className="grid h-9 w-9 place-items-center rounded-full text-lg" style={{ background: 'rgba(255,92,105,.2)' }}>{isReal ? '🟢' : '🤖'}</span><div><div className="text-sm font-bold leading-tight">{oppName}{isReal && ' · LIVE'}</div><div className="text-[11px] text-white/60">{t('dice.score')}: {botScore}</div></div></div>

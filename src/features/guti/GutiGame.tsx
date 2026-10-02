@@ -82,7 +82,7 @@ export default function GutiGame() {
   const myLeft = count(board, 1), botLeft = count(board, 2)
   return (
     <div className="app-frame flex min-h-[100dvh] flex-col" style={{ background: 'radial-gradient(120% 80% at 50% -10%,#5B0F2E 0%,#2A0A24 55%,#12061A 100%)' }}>
-      <GameHeader title={t('home.guti')} prizeMinor={m!.prizeMinor} extra={<VoiceButton roomId={modeId ?? m!.id} />} gameType="guti" />
+      <GameHeader title={t('home.guti')} prizeMinor={m!.prizeMinor} extra={<VoiceButton />} gameType="guti" />
 
       <div className="flex items-center justify-between px-5 py-2.5 text-white">
         <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-full text-base" style={{ background: 'rgba(255,92,105,.2)' }}>{isReal ? '🟢' : '🤖'}</span><span className="text-sm font-bold">{oppName}</span>{isReal && <span className="chip bg-danger text-white text-[10px] font-extrabold">LIVE</span>}</div>

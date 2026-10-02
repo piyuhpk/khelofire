@@ -200,7 +200,7 @@ const roll = () => {
     <div className="app-frame flex min-h-[100dvh] flex-col" style={{
       background: 'radial-gradient(circle at 20% 12%, rgba(90,170,255,.30), transparent 42%), radial-gradient(circle at 85% 85%, rgba(0,90,190,.35), transparent 45%), linear-gradient(170deg,#1560B4 0%,#0E4A93 45%,#0A3A78 100%)',
     }}>
-      <GameHeader title={t(m!.nameKey as any)} prizeMinor={m!.prizeMinor} extra={<VoiceButton roomId={modeId ?? m!.id} />} gameType="ludo" />
+      <GameHeader title={t(m!.nameKey as any)} prizeMinor={m!.prizeMinor} extra={<VoiceButton />} gameType="ludo" />
 
       {/* opponents */}
       <div className="flex flex-wrap justify-center gap-2 px-3 pt-2">

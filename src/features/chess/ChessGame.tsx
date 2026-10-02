@@ -97,7 +97,7 @@ export default function ChessGame() {
   return (
     <div className="app-frame flex min-h-[100dvh] flex-col" style={{ background: 'linear-gradient(160deg,#0A6B41,#083D26)' }}>
       <GameHeader title={`Daba · ${m!.clock}`} prizeMinor={m!.prizeMinor}
-        extra={<><button onClick={() => { if (confirm('Offer draw?')) finish('draw', t('result.drawConsent')) }} className="text-lg" aria-label="draw">🤝</button><VoiceButton roomId={modeId ?? m!.id} /></>} gameType="chess" />
+        extra={<><button onClick={() => { if (confirm('Offer draw?')) finish('draw', t('result.drawConsent')) }} className="text-lg" aria-label="draw">🤝</button><VoiceButton /></>} gameType="chess" />
 
       <div className="flex items-center justify-between px-4 py-2 text-white">
         <div className="flex items-center gap-2"><span className="text-lg">{isReal ? '🟢' : '🤖'}</span><span className="text-sm font-bold">{oppName}</span>{isReal && <span className="chip bg-danger text-white text-[10px] font-extrabold">LIVE</span>}</div>

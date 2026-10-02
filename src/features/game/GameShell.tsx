@@ -61,10 +61,21 @@ export function GameHeader({ title, prizeMinor, extra, gameType }: { title: stri
   )
 }
 
+/**
+ * Mic + peer-to-peer voice.
+ *
+ * `roomId` MUST be a per-match id. Passing a mode id here is a privacy bug, and
+ * it was one: every player of that mode shared the channel, so turning the mic on
+ * in a bot game broadcast you to every stranger playing that mode, and you were
+ * connected to all of them rather than to your opponent. With no roomId the mic
+ * still works as a local meter and simply finds no peers.
+ *
+ * Pass the live match id once real matches exist (see supabase/003_ludo_engine.sql).
+ */
 export function VoiceButton({ roomId }: { roomId?: string }) {
   const t = useT()
   const toast = useToast()
-  const { on, level, toggle } = useVoiceRoom(roomId ?? null)
+  const { on, level, toggle, peerCount, live } = useVoiceRoom(roomId ?? null)
   const click = async () => {
     const wasOn = on
     const err = await toggle()
@@ -72,14 +83,24 @@ export function VoiceButton({ roomId }: { roomId?: string }) {
     if (err === 'mic-denied') toast(t('voice.micDenied'), 'err')
     else if (err === 'insecure') toast(t('voice.insecure'), 'err')
     else if (err === 'mic-unsupported') toast(t('voice.micMissing'), 'err')
-    else if (!err) toast(roomId ? 'Voice live (STUN P2P)' : 'Voice on', 'ok')
+    // NOT "voice live". At this point only the microphone has opened - no peer
+    // has connected yet, and on a restrictive network none ever may. Saying
+    // "live" here made a dead mic look like a working call.
+    else if (!err) toast(roomId ? 'Mic on — waiting for the other player' : 'Mic on', 'ok')
   }
+  // three states, not two: off / mic open but nobody connected / actually connected
+  const tint = !on ? 'rgba(255,255,255,.08)' : live ? 'var(--emerald)' : '#B45309'
   return (
-    <button onClick={click} aria-label="mic" className={`${iconBtn} relative ${on ? 'animate-pulse-ring' : ''}`}
-      style={{ background: on ? 'var(--emerald)' : 'rgba(255,255,255,.08)' }}>
+    <button onClick={click} aria-label="mic" className={`${iconBtn} relative ${live ? 'animate-pulse-ring' : ''}`}
+      title={!on ? 'Voice off' : live ? `Connected (${peerCount})` : 'Mic on — not connected to anyone yet'}
+      style={{ background: tint }}>
       {on ? <Mic className="h-[18px] w-[18px]" /> : <MicOff className="h-[18px] w-[18px]" />}
       {on && (
         <span className="absolute -bottom-1 left-1/2 -translate-x-1/2 h-1 rounded-full bg-white/90" style={{ width: `${Math.round(8 + level * 24)}px` }} />
+      )}
+      {/* a mic that is on but connected to nobody must not look like a live call */}
+      {on && !live && (
+        <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full" style={{ background: '#F59E0B' }} />
       )}
     </button>
   )
