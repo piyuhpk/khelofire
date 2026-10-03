@@ -79,9 +79,49 @@ export function useRoomChat(roomId: string | null, botFallback: () => void) {
   return { msgs, send }
 }
 
-// ---------- voice room (WebRTC P2P, STUN-only) ----------
-// Returns { on, level, error, toggle }. Level 0..1 from mic analyser.
+// ---------- voice room (WebRTC P2P, STUN + optional TURN relay) ----------
+// Returns { on, level, error, toggle, peerCount, live }. Level 0..1 from mic analyser.
 // Error-free: stale closures removed (refs), full cleanup, mic-denied surfaced.
+
+/** true when a TURN relay is configured, i.e. voice can work on a hostile NAT */
+export function hasTurn(): boolean {
+  return Boolean(import.meta.env.VITE_TURN_URLS && import.meta.env.VITE_TURN_CREDENTIAL)
+}
+
+/**
+ * ICE servers for voice.
+ *
+ * STUN alone is NOT enough, and this is the single biggest reason "voice chat
+ * doesn't work" reports exist. STUN discovers your public address but cannot
+ * open a path through a NAT that only permits outbound traffic to a known
+ * server. On a symmetric NAT - common on 4G/mobile data, and on plenty of office
+ * and campus networks - two players behind such NATs can exchange candidates
+ * indefinitely and never connect. No amount of code fixes that; only a relay does.
+ *
+ * With TURN configured, iceTransportPolicy 'all' tries the cheap direct path
+ * first and falls back to relaying, so adding TURN does not mean paying for
+ * relay bandwidth on networks that never needed it.
+ *
+ * iceCandidatePoolSize prefetches candidates so the first attempt is not
+ * serialised behind a STUN round trip - that serialisation is what made joining
+ * feel slow even when it eventually connected.
+ */
+function rtcConfig(): RTCConfiguration {
+  const iceServers: RTCIceServer[] = [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+  ]
+  const urls = (import.meta.env.VITE_TURN_URLS ?? '').split(',').map((s) => s.trim()).filter(Boolean)
+  const credential = import.meta.env.VITE_TURN_CREDENTIAL
+  if (urls.length && credential) iceServers.push({ urls, username: import.meta.env.VITE_TURN_USERNAME, credential })
+  return {
+    iceServers,
+    iceTransportPolicy: 'all',
+    iceCandidatePoolSize: 4,
+    bundlePolicy: 'max-bundle',
+  }
+}
+
 export function useVoiceRoom(roomId: string | null) {
   const [on, setOn] = useState(false)
   const [level, setLevel] = useState(0)
@@ -179,7 +219,7 @@ export function useVoiceRoom(roomId: string | null) {
       const mkPc = (remoteId: string) => {
         const old = pcs.current.get(remoteId)
         if (old) { try { old.close() } catch {} }
-        const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }, { urls: 'stun:stun1.l.google.com:19302' }] })
+        const pc = new RTCPeerConnection(rtcConfig())
         mic.getTracks().forEach((t) => pc.addTrack(t, mic))
         pc.onicecandidate = (e) => {
           if (e.candidate) ch.send({ type: 'broadcast', event: 'ice', payload: { from: me, to: remoteId, ice: e.candidate } }).catch(() => {})
@@ -216,6 +256,14 @@ export function useVoiceRoom(roomId: string | null) {
             pendingIce.current.delete(remoteId)
             setPeerCount(pcs.current.size)
             setLive(pcs.current.size > 0)
+            // 'failed' is the terminal ICE state, and with no TURN configured it is
+            // exactly what a symmetric NAT produces. Say so, rather than leaving
+            // the player staring at a mic that looks on and is not connected.
+            if (pc.connectionState === 'failed') {
+              setError(hasTurn()
+                ? 'Voice could not connect. Check your network and try again.'
+                : 'Voice could not connect - this network needs a relay and none is configured (TURN).')
+            }
           } else if (pc.connectionState === 'connected') {
             setPeerCount(pcs.current.size)
             setLive(true)
