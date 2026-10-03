@@ -15,6 +15,7 @@
 import { supabase, hasSupabase } from './supabase'
 import { useStore, type Ledger, type MatchRecord, type LedgerType, type TxnStatus, type Outcome } from './store'
 import { notifyError } from './notice'
+import * as wallet from './wallet'
 
 let uid: string | null = null
 let started = false
@@ -97,6 +98,14 @@ export async function loadUserData() {
         ts: new Date(r.created_at).getTime(), moves: r.moves ?? undefined,
       }))
       useStore.setState({ matches })
+    }
+
+    // Staff-only: the admin's deposit/withdrawal queue. The RPC returns empty
+    // arrays for anyone who is not staff, so this is safe to call always - it
+    // is what makes another player's request visible in the admin panel at all.
+    const pending = await wallet.fetchPendingRequests()
+    if (pending.deposits.length || pending.withdrawals.length) {
+      useStore.getState().setPendingRequests(pending)
     }
   } catch (e) {
     notifyError('Could not load your data', e)

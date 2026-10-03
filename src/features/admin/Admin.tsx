@@ -415,16 +415,53 @@ export default function Admin() {
       {/* ---- Payments ---- */}
       {tab === 'Payments' && (
         <div className="card p-4 space-y-3">
-          <div className="flex items-center gap-2 text-sm font-bold"><CreditCard className="h-4 w-4 text-primary-2" strokeWidth={2.2} />Payment gateway</div>
-          <div><label className="label">Provider</label>
-            <select className="input" value={pay.provider} onChange={(e) => setPaymentConfig({ provider: e.target.value })}>{['bKash', 'Nagad', 'Rocket', 'Stripe', 'SSLCOMMERZ'].map((p) => <option key={p}>{p}</option>)}</select>
+          <div className="flex items-center gap-2 text-sm font-bold">
+            <CreditCard className="h-4 w-4 text-primary-2" strokeWidth={2.2} />Payment method
           </div>
-          <div><label className="label">Merchant ID</label><input className="input" value={pay.merchantId} onChange={(e) => setPaymentConfig({ merchantId: e.target.value })} placeholder="merchant id" /></div>
-          <div><label className="label">API key</label><input type="password" className="input" value={pay.apiKey} onChange={(e) => setPaymentConfig({ apiKey: e.target.value })} placeholder="secret key" /></div>
-          <div className="flex items-center justify-between"><span className="text-sm font-semibold">Enable live payments</span>
-            <button onClick={() => setPaymentConfig({ enabled: !pay.enabled })} className="h-6 w-11 rounded-full p-0.5 transition" style={{ background: pay.enabled ? 'var(--grad)' : 'var(--line)' }}><span className={`block h-5 w-5 rounded-full bg-white transition ${pay.enabled ? 'translate-x-5' : ''}`} /></button>
+
+          {/*
+            Manual, and only manual. This used to be a "Payment gateway" card with
+            a Provider dropdown (Stripe, SSLCOMMERZ), a Merchant ID, an API key and
+            an "Enable live payments" toggle - which was worse than useless: none of
+            it was ever read by any payment code path. `enabled` and `apiKey` had
+            zero consumers, so flipping the switch changed nothing while looking
+            like the app was taking live money, and the API key sat in
+            localStorage in plaintext. Meanwhile the flow was, and still is, manual
+            end to end: a deposit or withdrawal row is created 'pending' and only
+            the staff-only admin-wallet edge function can move it off pending.
+
+            So there is no switch to get wrong. The mode is stated, the merchant
+            numbers players are told to send to are editable here (that IS read, by
+            Wallet.tsx), and the approval work stays where it belongs - the
+            Withdrawals tab.
+          */}
+          <div className="flex items-center justify-between rounded-xl border border-line bg-surface-2/60 px-3 py-2.5">
+            <div>
+              <div className="text-sm font-bold">Mode</div>
+              <div className="text-[11px] text-muted">Player sends the transfer, you verify it and approve</div>
+            </div>
+            <span className="chip text-[11px] font-bold" style={{ background: 'rgba(16,185,129,.16)', color: 'var(--emerald2)' }}>
+              Manual
+            </span>
           </div>
-          <p className="text-[11px] text-muted">⚠️ Real payments need provider approval + KYC. Keys stored server-side in production.</p>
+
+          <div>
+            <label className="label">Provider shown to players</label>
+            <select className="input" value={pay.provider} onChange={(e) => setPaymentConfig({ provider: e.target.value })}>
+              {['bKash', 'Nagad', 'Rocket'].map((p) => <option key={p}>{p}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label">{pay.provider} merchant number</label>
+            <input className="input" value={pay.merchantId} onChange={(e) => setPaymentConfig({ merchantId: e.target.value })} placeholder="e.g. 01712-345678" />
+            <p className="mt-1 text-[11px] text-muted">This is the number players are told to send money to. Leave blank to use the built-in placeholder.</p>
+          </div>
+
+          <p className="text-[11px] text-muted">
+            ⚠️ There is no automatic gateway here. Nothing in this app talks to bKash, Nagad or any
+            provider API - approving a request is a human confirming the money arrived. Approve and
+            reject in the <strong>Withdrawals</strong> tab.
+          </p>
         </div>
       )}
 
@@ -441,7 +478,17 @@ export default function Admin() {
           {deposits.map((d) => (
             <div key={d.id} className="card p-3">
               <div className="flex items-center gap-2">
-                <div className="min-w-0 flex-1"><div className="truncate text-sm font-bold">{d.user}</div><div className="truncate text-[11px] text-muted">{d.method} · {new Date(d.ts).toLocaleString()} · {d.id.slice(-6)}</div></div>
+                <div className="min-w-0 flex-1"><div className="truncate text-sm font-bold">{d.user}</div><div className="truncate text-[11px] text-muted">{d.method} · {new Date(d.ts).toLocaleString()} · {d.id.slice(-6)}</div>
+                  {/*
+                    The transaction id is the whole point of a manual deposit: it
+                    is how the admin tells this payment apart in a bank/mobile
+                    statement, and deposits_ref_unique uses it to stop one payment
+                    being credited twice. It used to be collected nowhere, stored
+                    nowhere and shown nowhere, so approving a deposit meant taking
+                    the admin's word for it.
+                  */}
+                  {d.ref && <div className="mt-0.5 truncate text-[11px] font-bold tnum">TxID {d.ref}</div>}
+                </div>
                 <div className="tnum text-sm font-extrabold text-emerald2">{fmt(d.amountMinor)}</div>
                 <span className="chip text-[10px] font-bold" style={d.status === 'pending' ? { background: 'rgba(255,212,102,.15)', color: 'var(--gold)' } : d.status === 'approved' ? { background: 'rgba(31,203,139,.15)', color: 'var(--emerald)' } : { background: 'rgba(255,92,105,.15)', color: 'var(--danger)' }}>{d.status}</span>
               </div>
@@ -462,7 +509,9 @@ export default function Admin() {
           {withdrawals.map((w) => (
             <div key={w.id} className="card p-3">
               <div className="flex items-center gap-2">
-                <div className="min-w-0 flex-1"><div className="truncate text-sm font-bold">{w.user}</div><div className="truncate text-[11px] text-muted">{w.method} · {new Date(w.ts).toLocaleString()}</div></div>
+                <div className="min-w-0 flex-1"><div className="truncate text-sm font-bold">{w.user}</div><div className="truncate text-[11px] text-muted">{w.method} · {new Date(w.ts).toLocaleString()}</div>
+                  {w.account && <div className="mt-0.5 truncate text-[11px] font-bold tnum">Pay to {w.account}</div>}
+                </div>
                 <div className="tnum text-sm font-extrabold text-gold">{fmt(w.amountMinor)}</div>
                 <span className="chip text-[10px] font-bold" style={w.status === 'pending' ? { background: 'rgba(255,212,102,.15)', color: 'var(--gold)' } : w.status === 'approved' ? { background: 'rgba(31,203,139,.15)', color: 'var(--emerald)' } : { background: 'rgba(255,92,105,.15)', color: 'var(--danger)' }}>{w.status}</span>
               </div>

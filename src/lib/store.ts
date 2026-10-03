@@ -3,6 +3,7 @@ import { persist } from 'zustand/middleware'
 import { toMinor } from './money'
 import { hasSupabase } from './supabase'
 import * as wallet from './wallet'
+import type { PendingRow } from './wallet'
 import { notify, notifyError } from './notice'
 
 /** true once Supabase keys exist â€” then money is decided by the server, not here */
@@ -104,11 +105,22 @@ export interface AdminActivity {
   ip?: string; 
   ts: number 
 }
-export interface Withdrawal { id: string; user: string; amountMinor: number; method: string; status: 'pending' | 'approved' | 'rejected'; ts: number }
-export interface Deposit { id: string; user: string; amountMinor: number; method: string; status: 'pending' | 'approved' | 'rejected'; ts: number }
+// `account` and `ref` are not decoration. request_withdrawal raises
+// 'enter the account to receive the money' on a blank account, so a withdrawal
+// sent without one can never be created; and deposits_ref_unique only protects
+// against double-crediting a payment when the player gives the transaction id,
+// which the admin then needs in order to actually verify it.
+export interface Withdrawal { id: string; user: string; amountMinor: number; method: string; account: string; status: 'pending' | 'approved' | 'rejected'; ts: number }
+export interface Deposit { id: string; user: string; amountMinor: number; method: string; ref: string; status: 'pending' | 'approved' | 'rejected'; ts: number }
 export interface AdminBanner { id: string; titleEn: string; titleBn: string; url: string; active: boolean }
 export interface BonusConfig { welcomeMinor: number; referralMinor: number; dailyMinor: number; depositPct: number }
-export interface PaymentConfig { provider: string; merchantId: string; apiKey: string; enabled: boolean }
+// Manual only, and there is deliberately no `enabled` flag and no `apiKey`.
+// Both existed and neither was ever read by any payment code path, so the admin
+// toggle looked like it was taking live money while changing nothing - and the
+// key was persisted to localStorage in plaintext. A provider key belongs in a
+// server-side secret store, not in a Zustand object that ships to the browser,
+// and there is no gateway integration for a key to unlock.
+export interface PaymentConfig { provider: string; merchantId: string }
 export interface SiteConfig { maintenance: boolean; minWithdrawMinor: number; voiceFee: boolean; chessEnabled: boolean }
 // NOTE: no adminPin. The old settings object carried the admin password in
 // plain localStorage, so anyone could read it from their own phone (and
@@ -184,10 +196,12 @@ interface DemoState {
   removeCategoryImage: (key: keyof CategoryImageConfig) => void
   setGameModeImage: (modeId: string, patch: { backgroundImage?: string; thumbnailImage?: string }) => void
   removeGameModeImage: (modeId: string) => void
-  addMoney: (taka: number, method?: string) => Promise<boolean>
+  addMoney: (taka: number, method?: string, ref?: string) => Promise<boolean>
   setDepositStatus: (id: string, status: Deposit['status']) => Promise<void>
+  /** staff queue refresh: merge the server's pending rows into the local mirror */
+  setPendingRequests: (rows: { deposits: PendingRow[]; withdrawals: PendingRow[] }) => void
   unlockEntry: (minor: number, note: string) => void
-  withdraw: (taka: number, method?: string) => Promise<boolean>
+  withdraw: (taka: number, method?: string, account?: string) => Promise<boolean>
   setWithdrawalStatus: (id: string, status: Withdrawal['status']) => Promise<void>
   lockEntry: (minor: number, note: string) => boolean
   settle: (rec: Omit<MatchRecord, 'id' | 'ts'>) => void
@@ -253,7 +267,7 @@ const initial = {
     { id: uid(), titleEn: 'Refer a friend, get a bonus!', titleBn: 'à¦¬à¦¨à§à¦§à§à¦•à§‡ à¦†à¦¨à§à¦¨, à¦¬à§‹à¦¨à¦¾à¦¸ à¦¨à¦¿à¦¨!', url: '', active: true },
   ] as AdminBanner[],
   bonusConfig: { welcomeMinor: toMinor(50), referralMinor: toMinor(20), dailyMinor: toMinor(5), depositPct: 5 } as BonusConfig,
-  paymentConfig: { provider: 'bKash', merchantId: '', apiKey: '', enabled: false } as PaymentConfig,
+  paymentConfig: { provider: 'bKash', merchantId: '' } as PaymentConfig,
   siteConfig: { maintenance: false, minWithdrawMinor: toMinor(100), voiceFee: false, chessEnabled: true } as SiteConfig,
   categoryImages: {} as CategoryImageConfig,
   gameModeImages: {} as GameModeImageConfig,
@@ -413,25 +427,26 @@ export const useStore = create<DemoState>()(
       // Add money = deposit REQUEST. Nothing is credited until an admin approves it.
       // In live mode the row is created by request_deposit() so the amount is
       // validated server-side; the local list is only a mirror for the UI.
-      addMoney: async (taka, method = 'bKash') => {
+      addMoney: async (taka, method = 'bKash', ref = '') => {
         const amt = toMinor(taka)
         if (amt <= 0) return false
+        const txnRef = ref.trim()
         if (!liveMode) {
           const id = txn()
           const user = get().username
           set((s) => ({
-            deposits: [{ id, user, amountMinor: amt, method, status: 'pending', ts: Date.now() }, ...s.deposits],
+            deposits: [{ id, user, amountMinor: amt, method, ref: txnRef, status: 'pending', ts: Date.now() }, ...s.deposits],
             ledger: [{ id, type: 'deposit', amountMinor: amt, balanceAfter: get().availableMinor, status: 'pending', ts: Date.now(), note: `Deposit request Â· ${method}` }, ...s.ledger],
           }))
           get().logAdminActivity('deposit_request', 'payments', `${user} Â· ${method} Â· ${taka}`)
           return true
         }
         try {
-          const id = await wallet.requestDeposit(amt, method, '')
+          const id = await wallet.requestDeposit(amt, method, txnRef)
           if (!id) return false
           const user = get().username
           set((s) => ({
-            deposits: [{ id, user, amountMinor: amt, method, status: 'pending', ts: Date.now() }, ...s.deposits],
+            deposits: [{ id, user, amountMinor: amt, method, ref: txnRef, status: 'pending', ts: Date.now() }, ...s.deposits],
             ledger: [{ id, type: 'deposit', amountMinor: amt, balanceAfter: s.availableMinor, status: 'pending', ts: Date.now(), note: 'deposit request' } as Ledger, ...s.ledger],
           }))
           notify('Deposit request sent', 'ok')
@@ -440,6 +455,32 @@ export const useStore = create<DemoState>()(
           notifyError('Deposit request failed', e)
           return false
         }
+      },
+      // The admin queue used to read the local mirror only, so it could approve
+      // requests this browser had created and nothing else - every deposit made
+      // on a player's own phone was invisible to the admin, and to approve it
+      // the request had to be recreated by hand on the admin's device. The rows
+      // live in Postgres behind RLS, so they arrive via the staff-checked
+      // list_pending_requests RPC and are merged over the mirror by id.
+      setPendingRequests: ({ deposits, withdrawals }) => {
+        const ts = (s: string) => new Date(s).getTime()
+        const merge = <T extends { id: string }>(local: T[], rows: PendingRow[], extra: (r: PendingRow) => T): T[] => {
+          const byId = new Map<string, T>(rows.map((r) => [r.id, extra(r)]))
+          // keep anything the server did not send, so an offline request the
+          // player just made does not blink out of their own history
+          for (const l of local) if (!byId.has(l.id)) byId.set(l.id, l)
+          return [...byId.values()]
+        }
+        set((s) => ({
+          deposits: merge(s.deposits, deposits, (r) => ({
+            id: r.id, user: r.user, amountMinor: r.amount_minor, method: r.method,
+            ref: r.ref ?? '', status: 'pending' as const, ts: ts(r.ts),
+          })),
+          withdrawals: merge(s.withdrawals, withdrawals, (r) => ({
+            id: r.id, user: r.user, amountMinor: r.amount_minor, method: r.method,
+            account: r.account ?? '', status: 'pending' as const, ts: ts(r.ts),
+          })),
+        }))
       },
       setDepositStatus: async (id, status) => {
         const d = get().deposits.find((x) => x.id === id)
@@ -475,10 +516,15 @@ export const useStore = create<DemoState>()(
         }
       },
 
-      withdraw: async (taka, method = 'bKash') => {
+      withdraw: async (taka, method = 'bKash', account = '') => {
         const amt = toMinor(taka)
         if (amt <= 0 || amt > get().availableMinor) return false
         if (amt < get().siteConfig.minWithdrawMinor) return false
+        // request_withdrawal rejects a blank account outright, so asking for the
+        // number here is the difference between a withdrawal that can be created
+        // and one that always throws.
+        const acct = account.trim()
+        if (!acct) { notify('Enter the account to receive the money', 'err'); return false }
         if (!liveMode) {
           const balanceAfter = get().availableMinor - amt
           const id = txn()
@@ -486,21 +532,21 @@ export const useStore = create<DemoState>()(
           set((s) => ({
             availableMinor: balanceAfter,
             ledger: [{ id, type: 'withdrawal', amountMinor: -amt, balanceAfter, status: 'pending', ts: Date.now(), note: `Withdrawal Â· ${method}` }, ...s.ledger],
-            withdrawals: [{ id, user, amountMinor: amt, method, status: 'pending', ts: Date.now() }, ...s.withdrawals],
+            withdrawals: [{ id, user, amountMinor: amt, method, account: acct, status: 'pending', ts: Date.now() }, ...s.withdrawals],
           }))
           return true
         }
         try {
           // the server debits the balance immediately so the same money cannot
           // be requested twice, and refunds on rejection
-          const id = await wallet.requestWithdrawal(amt, method, '')
+          const id = await wallet.requestWithdrawal(amt, method, acct)
           if (!id) return false
           const user = get().username
           const balanceAfter = get().availableMinor - amt
           set((s) => ({
             availableMinor: balanceAfter,
             ledger: [{ id, type: 'withdrawal', amountMinor: -amt, balanceAfter, status: 'pending', ts: Date.now(), note: 'withdrawal request' } as Ledger, ...s.ledger],
-            withdrawals: [{ id, user, amountMinor: amt, method, status: 'pending', ts: Date.now() }, ...s.withdrawals],
+            withdrawals: [{ id, user, amountMinor: amt, method, account: acct, status: 'pending', ts: Date.now() }, ...s.withdrawals],
           }))
           notify('Withdrawal requested', 'ok')
           return true

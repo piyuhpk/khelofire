@@ -26,6 +26,13 @@ export default function Wallet() {
   const [tab, setTab] = useState<'add' | 'withdraw' | 'history'>((params.get('tab') as any) || 'add')
   const [amt, setAmt] = useState('')
   const [method, setMethod] = useState('bKash')
+  // the two halves of a manual payment. `ref` is the transaction id the player
+  // sent money with - deposits_ref_unique uses it to stop one payment being
+  // deposited twice, and the admin cannot check a bank statement without it.
+  // `account` is where the payout goes - request_withdrawal rejects a blank one,
+  // so a withdrawal with no account could never be created at all.
+  const [txnRef, setTxnRef] = useState('')
+  const [account, setAccount] = useState('')
   const toast = useToast()
   const ready = useReady(500)
   const availableMinor = useStore((s) => s.availableMinor)
@@ -36,7 +43,7 @@ export default function Wallet() {
   const merchantId = useStore((s) => s.paymentConfig.merchantId)
   const minWithdrawMinor = useStore((s) => s.siteConfig.minWithdrawMinor)
   const payNumber = (merchantId && method === 'bKash' ? merchantId : '') || PAY_NUMBERS[method] || PAY_NUMBERS.bKash
-  const valid = Number(amt) > 0
+  const valid = Number(amt) > 0 && (tab !== 'withdraw' || account.trim().length > 0)
   const [checkout, setCheckout] = useState(false)
   const [payStep, setPayStep] = useState<'pay' | 'done'>('pay')
   const mStyle = METHOD_STYLE[method] || METHOD_STYLE.bKash
@@ -46,16 +53,17 @@ export default function Wallet() {
     if (!n || n <= 0) return toast(t('wallet.amount') + ' ' + t('error.generic'), 'err')
     if (tab === 'add') { setPayStep('pay'); setCheckout(true); return }
     if (n * 100 < minWithdrawMinor) return toast(`${t('wallet.minWithdraw')} ৳${Math.round(minWithdrawMinor / 100)}`, 'err')
+    if (!account.trim()) return toast('Enter the account to receive the money', 'err')
     // async now: the server validates and debits, so the result is not known yet
-    if (await withdraw(n, method)) toast(`${t('wallet.pending')} · ${method}`, 'ok')
+    if (await withdraw(n, method, account)) toast(`${t('wallet.pending')} · ${method}`, 'ok')
     else toast(t('match.insufficient'), 'err')
     setAmt('')
   }
   // Pay Now → deposit REQUEST (pending) — admin panel approves, then credited
   const payNow = async () => {
-    if (!(await addMoney(Number(amt), method))) { setCheckout(false); return toast(t('error.generic'), 'err') }
+    if (!(await addMoney(Number(amt), method, txnRef))) { setCheckout(false); return toast(t('error.generic'), 'err') }
     setPayStep('done')
-    setTimeout(() => { setCheckout(false); setAmt('') }, 1600)
+    setTimeout(() => { setCheckout(false); setAmt(''); setTxnRef('') }, 1600)
   }
   const copyPay = () => {
     navigator.clipboard?.writeText(payNumber.replace(/-/g, ''))
@@ -114,6 +122,13 @@ export default function Wallet() {
             <label className="label">{t('wallet.method')}</label>
             <select className="input" value={method} onChange={(e) => setMethod(e.target.value)}><option>bKash</option><option>Nagad</option><option>Rocket</option></select>
           </div>
+          {tab === 'withdraw' && (
+            <div>
+              <label className="label">{method} account number to receive the money</label>
+              <input inputMode="numeric" className="input tnum" value={account} onChange={(e) => setAccount(e.target.value)} placeholder="e.g. 01712-345678" />
+              <p className="mt-1 text-[11px] text-muted">The admin sends the money to this number. Without it the request cannot be created.</p>
+            </div>
+          )}
           {tab === 'add' && (
             <div className="card p-3 space-y-2">
               <div className="flex items-center gap-1.5 text-xs font-extrabold"><Landmark className="h-3.5 w-3.5 text-emerald2" strokeWidth={2.4} />{t('wallet.howToPay')} · {method}</div>
