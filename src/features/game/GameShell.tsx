@@ -1,6 +1,6 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronLeft, X, Volume2, VolumeX, Flag, Mic, MicOff, Trophy, Frown, Handshake, Ban, AlertTriangle, HelpCircle } from 'lucide-react'
+import { ChevronLeft, X, Volume2, VolumeX, Mic, MicOff, Trophy, Frown, Handshake, Ban, AlertTriangle, HelpCircle } from 'lucide-react'
 import { useT } from '../../i18n'
 import { Modal, useToast } from '../../ui/components'
 import { fmt } from '../../lib/money'
@@ -12,7 +12,6 @@ const iconBtn = 'grid h-9 w-9 place-items-center rounded-full text-white/90 acti
 export function GameHeader({ title, prizeMinor, extra, gameType }: { title: string; prizeMinor: number; extra?: ReactNode; gameType?: string }) {
   const [muted, setMuted] = useState(false)
   const [guideOpen, setGuideOpen] = useState(false)
-  const toast = useToast()
   const t = useT()
 
   return (
@@ -33,9 +32,10 @@ export function GameHeader({ title, prizeMinor, extra, gameType }: { title: stri
       <button onClick={() => setMuted((m) => !m)} aria-label="sound" className={iconBtn} style={{ background: 'rgba(255,255,255,.08)' }}>
         {muted ? <VolumeX className="h-[18px] w-[18px]" /> : <Volume2 className="h-[18px] w-[18px]" />}
       </button>
-      <button onClick={() => toast('Reported', 'info')} aria-label="report" className={iconBtn} style={{ background: 'rgba(255,255,255,.08)' }}>
-        <Flag className="h-[18px] w-[18px]" />
-      </button>
+      {/* The report button used to call toast('Reported') and nothing else - it sent
+          nothing anywhere and told the player it had. A control that reports a
+          report it never filed is worse than no control, so it is gone until
+          there is a real endpoint behind it. */}
       <button onClick={() => window.dispatchEvent(new CustomEvent('game-exit'))} aria-label="exit" className={iconBtn} style={{ background: 'rgba(255,255,255,.08)' }}>
         <X className="h-[18px] w-[18px]" />
       </button>
