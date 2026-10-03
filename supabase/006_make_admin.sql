@@ -62,24 +62,35 @@ begin
   -- table and its shape differs between versions. Everything not named falls
   -- back to the column default, which is the right default for each of them.
   --
-  -- id is named explicitly because auth.users.id is `not null` with no default on
-  -- some projects, and the insert failed with 23502 where it does have one.
+  -- id, created_at and updated_at are named explicitly for the same reason: on
+  -- some projects they are `not null` with NO default, and relying on one gave
+  -- 23502 for id and a row with created_at = null. A null created_at is not
+  -- cosmetic - the dashboard's user list orders by it, so the account becomes
+  -- effectively invisible there and cannot be given a password.
   --
   -- crypt/gen_salt are called as extensions.crypt because pgcrypto lives in the
   -- `extensions` schema on Supabase, and this function sets search_path to
   -- public - the unqualified names do not resolve.
   insert into auth.users (
     id, email, encrypted_password, email_confirmed_at,
-    raw_app_meta_data, raw_user_meta_data
+    raw_app_meta_data, raw_user_meta_data, created_at, updated_at
   ) values (
     gen_random_uuid(),
     lower(btrim(p_email)),
     extensions.crypt(p_password, extensions.gen_salt('bf')),
     now(),
     '{"provider":"email","providers":["email"]}',
-    '{"provider":"email","providers":["email"]}'
+    '{"provider":"email","providers":["email"]}',
+    now(), now()
   )
   returning id into v_uid;
+
+  -- Same repair for an account an older run of this script left behind with a
+  -- null created_at: without it the account cannot be managed in the dashboard.
+  update auth.users
+     set created_at = coalesce(created_at, now()),
+         updated_at = coalesce(updated_at, now())
+   where id = v_uid;
 
   -- No profile insert here on purpose. handle_new_user() is an AFTER INSERT
   -- trigger on auth.users and it already creates the row, filling in player_id
@@ -138,6 +149,14 @@ begin
 
   select id into v_uid from auth.users where lower(email) = lower(btrim(p_email));
   if v_uid is null then raise exception 'no user with the email %', p_email; end if;
+
+  -- An account created by an earlier version of create_first_admin can have a
+  -- null created_at, which puts it at the wrong end of the dashboard's user list
+  -- and makes it look like it does not exist. Repair it before granting.
+  update auth.users
+     set created_at = coalesce(created_at, now()),
+         updated_at = coalesce(updated_at, now())
+   where id = v_uid;
 
   insert into public.staff (user_id, role) values (v_uid, p_role)
   on conflict (user_id) do update set role = excluded.role;
