@@ -20,7 +20,7 @@
 //     middle of a tournament with no message. It now tries to recover first and
 //     tells the user when the session really is gone.
 import { Capacitor } from '@capacitor/core'
-import { supabase, hasSupabase } from './supabase'
+import { supabase, hasSupabase, envProblem } from './supabase'
 import { useStore } from './store'
 import { loadUserData, stopSync } from './sync'
 import { notify } from './notice'
@@ -59,14 +59,32 @@ export function oauthRedirectUrl(): string {
 }
 
 export async function signIn(email: string, password: string) {
+  // A malformed URL or a pasted key belonging to another project makes Supabase
+  // answer 401 "Invalid login credentials" - a message about the account, when
+  // the actual fault is the .env. Say which one it is, because chasing the wrong
+  // one costs an evening.
+  if (envProblem) throw new Error(`Supabase is not configured: ${envProblem}`)
+
   if (liveAuth && supabase) {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    if (error) throw new Error(error.message)
+    const { error } = await supabase.auth.signInWithPassword({ email: email.trim(), password })
+    if (error) {
+      if (/invalid login credentials/i.test(error.message)) {
+        throw new Error(
+          `Wrong email or password (or this account does not exist in the project at ${supabaseUrlForError()})`,
+        )
+      }
+      throw new Error(error.message)
+    }
     explicitSignOut = false
     await applySession()
     return
   }
   useStore.getState().login(guessName(email))
+}
+
+function supabaseUrlForError(): string {
+  const u = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.trim() ?? 'unknown'
+  return u.replace(/^https?:\/\//, '')
 }
 
 /**
