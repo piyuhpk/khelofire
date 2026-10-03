@@ -351,16 +351,29 @@ begin
     v_bonus := 0;
     update public.profiles set available_minor = available_minor + v_d.amount_minor + v_bonus where id = v_d.user_id;
     update public.deposits set status='approved', decided_by=auth.uid(), decided_at=now() where id = p_id;
-    update public.transactions set status='completed'
-      where user_id = v_d.user_id and note = 'deposit request'
-      order by created_at asc limit 1;
+    -- Close out the placeholder row this request filed at request time. It is not
+    -- a settled movement - the ledger entry inserted below is - so it is marked
+    -- failed rather than completed, otherwise one deposit shows up twice in
+    -- history.
+    --
+    -- UPDATE has no ORDER BY/LIMIT in Postgres (only SELECT does), so the row is
+    -- chosen in a subquery and joined in. 004_payments.sql replaces this whole
+    -- function with a version that updates the exact row by id (txn_id) instead
+    -- of guessing by ordering.
+    update public.transactions t set status = 'failed'
+      from (select id from public.transactions
+             where user_id = v_d.user_id and note = 'deposit request' and status = 'pending'
+             order by created_at asc limit 1) pick
+     where t.id = pick.id;
     insert into public.transactions (user_id, amount_minor, note, status)
     values (v_d.user_id, v_d.amount_minor, 'deposit approved', 'completed');
   else
     update public.deposits set status='rejected', decided_by=auth.uid(), decided_at=now() where id = p_id;
-    update public.transactions set status='failed'
-      where user_id = v_d.user_id and note = 'deposit request'
-      order by created_at asc limit 1;
+    update public.transactions t set status = 'failed'
+      from (select id from public.transactions
+             where user_id = v_d.user_id and note = 'deposit request' and status = 'pending'
+             order by created_at asc limit 1) pick
+     where t.id = pick.id;
   end if;
 end; $$;
 revoke all on function public.decide_deposit(uuid, boolean) from public, anon, authenticated;

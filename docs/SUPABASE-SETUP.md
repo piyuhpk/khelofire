@@ -46,25 +46,43 @@ additive-only and idempotent (`if not exists`), so re-running is safe.
 | 3 | `supabase/003_ludo_engine.sql` | ludo columns on live_matches |
 | 4 | `supabase/004_payments.sql` | `request_deposit`, `request_withdrawal`, `decide_deposit`, `decide_withdrawal`, `list_pending_requests`, duplicate-ref guard |
 | 5 | `supabase/005_payment_gateways.sql` | gateway_config, payment_orders, `active_gateway()`, `set_gateway_mode()` |
+| 6 | `supabase/006_make_admin.sql` | `create_first_admin()` — run once, see step 4 |
 
 Run them in that order — `004` and `005` reference tables created by `schema.sql`.
 
 ## 4. Make yourself admin
 
-`staff` is the only thing that grants admin. Sign up in the app first, then find
-your user id and insert the row:
+`staff` is the only thing that grants admin. There is no client-side PIN and no
+`is_admin` flag on a profile: the admin panel reads `is_staff()` through RLS, so
+without a row in `staff` the account is an ordinary player no matter what the UI
+shows.
+
+After running `supabase/006_make_admin.sql` you can create the login in one step:
 
 ```sql
--- get your id
-select id, email from auth.users where email = 'you@example.com';
+select public.create_first_admin('khelofire@app.com', 'choose-a-real-password');
+```
 
--- make yourself superadmin
+That inserts the auth user (password bcrypt'd, never plain text), a profile row,
+and the `staff` row. It refuses to run for an account that already exists, and it
+refuses to run from a signed-in session or from anything but the database owner —
+it is a bootstrap, not an API. It is `revoke`d from `anon` and `authenticated`, so
+no browser can reach it.
+
+If the account already exists — you made it in the dashboard, or it came in through
+Google sign-in — just grant the role:
+
+```sql
 insert into public.staff (user_id, role)
-values ('<paste-your-id>', 'superadmin')
+select id, 'superadmin' from auth.users where lower(email) = 'khelofire@app.com'
 on conflict (user_id) do update set role = 'superadmin';
 ```
 
 Then sign out and back in — the session carries the role, not the page.
+
+Once you are in, **Admin → Settings → Your login** changes the email and password
+from inside the app. The password change asks for the current one first, so an
+unlocked phone cannot lock you out of your own panel.
 
 Roles: `superadmin` / `admin` can move money and change gateway settings,
 `support` cannot. Nothing a browser can do inserts into `staff`; only SQL and
