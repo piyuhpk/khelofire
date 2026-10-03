@@ -16,6 +16,14 @@ const TABS = [
   { id: 'Bonus', Icon: Gift }, { id: 'Payments', Icon: CreditCard }, { id: 'Withdrawals', Icon: Banknote }, { id: 'Support', Icon: LifeBuoy }, { id: 'Settings', Icon: SlidersHorizontal },
 ] as const
 
+// Why a gateway cannot be switched on from here. Shown instead of an enable
+// button, because a button that turns a provider live is a promise that a
+// checkout session can be built and a webhook can be verified - and right now
+// buildSession() throws "not implemented" and verify() returns false for every
+// provider. Enabling one would take a deposit and credit nothing.
+const blockedGatewayReason = () =>
+  'Automatic settlement is not switchable yet: no provider has buildSession() in payment-checkout or a working verify() in payment-webhook, so there is nothing that can take a BDT payment and prove it arrived. Merchant credentials alone would not help. Manual above is fully working.'
+
 // ---------- staff sign-in ----------
 // This used to be a single "PIN" field compared against a value stored in the
 // phone's own localStorage, and /admin-access?pin=4321 was a public URL that
@@ -117,6 +125,35 @@ export default function Admin() {
   const pay = useStore((s) => s.paymentConfig)
   const liveGw = useStore((s) => s.liveGateway)
   const refreshLiveGateway = useStore((s) => s.refreshLiveGateway)
+
+  // Gateway mode lives in the database, because "which gateway is live" is a
+  // security claim and a client-side flag would be a client's opinion. So this
+  // writes through the RPC and then re-reads active_gateway() rather than
+  // assuming the write landed.
+  const [gwBusy, setGwBusy] = useState<string | null>(null)
+  const setGatewayMode = async (provider: string, mode: 'manual' | 'auto', note = '') => {
+    setGwBusy(provider)
+    try {
+      if (!hasSupabase || !supabase) { toast('Supabase is not configured', 'err'); return }
+      // active_gateway() only reports `auto` when some row has enabled = true, so
+      // going manual is a write of provider='manual', enabled=false - not a mode
+      // flag on the current row. The env is what the row is labelled with; the
+      // row decides where real money would go, so that is what is set here.
+      const { error } = await supabase.rpc('set_gateway_mode', {
+        p_provider: provider,
+        p_mode: mode,
+        p_environment: mode === 'auto' ? 'live' : 'live',
+        p_enabled: mode === 'auto',
+        p_merchant_id: '',
+        p_note: note,
+      })
+      if (error) { toast(error.message, 'err'); return }
+      await refreshLiveGateway()
+      toast(mode === 'manual' ? 'Deposits are manual' : `${provider} is live`, 'ok')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not change the mode', 'err')
+    } finally { setGwBusy(null) }
+  }
   const site = useStore((s) => s.siteConfig)
   const categoryImages = useStore((s) => s.categoryImages)
   const gameModeImages = useStore((s) => s.gameModeImages)
@@ -495,6 +532,32 @@ export default function Admin() {
                 </span>
               </div>
               <button onClick={() => void refreshLiveGateway()} className="btn-ghost mt-2 w-full py-1.5 text-xs">Re-check</button>
+            </div>
+
+            {/*
+              The control that was missing. set_gateway_mode() has existed in
+              005 since it was written, but nothing in the app ever called it -
+              the panel only listed candidates and re-read active_gateway(). So
+              "add a gateway from the admin panel" had no way to succeed: the only
+              way to change the mode was to paste SQL.
+
+              Switching to Automatic is deliberately NOT one click. buildSession()
+              and verify() throw "not implemented" in payment-checkout /
+              payment-webhook for every provider, so turning a gateway on now
+              would route real deposits at a checkout that cannot build a session
+              and a webhook that cannot verify one - i.e. take the money and
+              credit nothing. Manual is offered here; Automatic shows why it is
+              blocked instead of being one button away.
+            */}
+            <div className="rounded-xl border border-line px-3 py-2.5 space-y-2">
+              <div className="text-xs font-bold">Switch mode</div>
+              <button
+                onClick={() => void setGatewayMode('manual', 'manual', 'switched off from the admin panel')}
+                disabled={gwBusy !== null || liveGw.mode === 'manual'}
+                className="btn-primary w-full py-2 text-xs disabled:opacity-50">
+                {gwBusy === 'manual' ? 'Saving…' : 'Use Manual'}
+              </button>
+              <p className="text-[11px] leading-snug text-muted">{blockedGatewayReason()}</p>
             </div>
 
             <div>

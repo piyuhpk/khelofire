@@ -139,9 +139,22 @@ begin
     raise exception 'unsupported provider';
   end if;
 
-  -- 'manual' is the floor: nothing turns it off, and nothing else can be on
-  -- while it is. A gateway row is only ever written when someone with admin
-  -- rights and the provider's credentials is deliberately flipping it.
+  -- 'manual' is the floor. Nothing turns it off.
+  --
+  -- Only one non-manual provider may be enabled at a time, and that is enforced
+  -- here rather than only described in a comment: active_gateway() picks the most
+  -- recently updated enabled row, so two gateways enabled at once means a deposit
+  -- gets routed by whichever row happened to be touched last. Which provider took
+  -- a player's money would then depend on write order - and a player seeing one
+  -- merchant number on screen while the checkout went to another is exactly the
+  -- bug that has to be impossible rather than unlikely.
+  if p_enabled and p_provider <> 'manual' then
+    if exists (select 1 from public.gateway_config
+                where provider <> 'manual' and provider <> p_provider and enabled) then
+      raise exception 'another gateway is already enabled - switch it off first, so only one can take a deposit';
+    end if;
+  end if;
+
   insert into public.gateway_config (provider, mode, environment, enabled, merchant_id, note, updated_at, updated_by)
   values (p_provider, p_mode, p_environment, p_enabled, coalesce(p_merchant_id,''), coalesce(p_note,''), now(), auth.uid())
   on conflict (provider) do update
