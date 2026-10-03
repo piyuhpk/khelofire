@@ -12,6 +12,15 @@ import dice3 from '../../assets/ludoking/dice3.png'
 import dice4 from '../../assets/ludoking/dice4.png'
 import dice5 from '../../assets/ludoking/dice5.png'
 import dice6 from '../../assets/ludoking/dice6.png'
+import spin1 from '../../assets/ludoking/dice0001.png'
+import spin2 from '../../assets/ludoking/dice0002.png'
+import spin3 from '../../assets/ludoking/dice0003.png'
+import spin4 from '../../assets/ludoking/dice0004.png'
+import spin5 from '../../assets/ludoking/dice0005.png'
+import spin6 from '../../assets/ludoking/dice0006.png'
+import spin7 from '../../assets/ludoking/dice0007.png'
+import spin8 from '../../assets/ludoking/dice0008.png'
+import gameBg from '../../assets/ludoking/backgroundmaze.jpeg'
 import { initLudo, legalTokens, applyMove, rollDice, botChoose, nextActive, COLORS, COLOR_NAME, FINISH, type LudoState, type PlayerId } from '../../engine/ludo'
 
 const BOT_NAMES = ['—', 'Rahim', 'Sakib', 'Tanvir']
@@ -24,13 +33,44 @@ const DICE_ART: Record<number, string> = {
 }
 
 /**
+ * The roll animation: eight frames of one die tumbling, all the same size
+ * (104x120) and all distinct, so this is a real frame-by-frame animation
+ * rather than a rotation someone tacked on with CSS.
+ */
+const SPIN_ART: Record<number, string> = {
+  1: spin1, 2: spin2, 3: spin3, 4: spin4, 5: spin5, 6: spin6, 7: spin7, 8: spin8,
+}
+
+/** how long one spin frame stays on screen. 8 x 60ms = 480ms, inside the
+ *  500ms window the roll uses to commit, so the last frame is visible when
+ *  the result lands instead of cutting off mid-tumble. */
+const SPIN_FRAME_MS = 60
+
+/**
  * The real die faces from the supplied Ludo King assets.
  *
  * One image per value, so there is nothing to render wrong: the pip layout is
  * the artwork's. The earlier hand-drawn face was a red rounded square, which is
  * neither the right colour nor the right shape for the genre.
+ *
+ * While rolling it shows the eight-frame tumble instead of any face - that is
+ * the moment the player is watching, and it needs to look like the die is
+ * actually moving.
  */
-function LudoDiceFace({ value }: { value: number | null }) {
+function LudoDiceFace({ value, spinning = false, frame = 1 }: { value: number | null; spinning?: boolean; frame?: number }) {
+  if (spinning) {
+    return (
+      <span
+        className="relative grid h-14 w-14 place-items-center"
+        style={{
+          transform: 'perspective(220px) rotateX(14deg) rotateY(-12deg)',
+          filter: 'drop-shadow(0 5px 6px rgba(0,0,0,.5))',
+        }}
+      >
+        <img src={SPIN_ART[frame]} alt="" draggable={false} className="h-full w-full object-contain" />
+      </span>
+    )
+  }
   if (value == null) {
     return (
       <span
@@ -84,6 +124,7 @@ export default function LudoGame() {
   const [st, setSt] = useState<LudoState>(() => initLudo(m?.players ?? 2))
   const [legal, setLegal] = useState<number[]>([])
   const [rolling, setRolling] = useState(false)
+  const [spinFrame, setSpinFrame] = useState(1)
   const [botDice, setBotDice] = useState<number | null>(null)
   const [msg, setMsg] = useState('')
   const [timer, setTimer] = useState(20)
@@ -108,6 +149,19 @@ export default function LudoGame() {
     setMsg('')
     setSt((s) => ({ ...s, dice: null, rolled: false, sixes: 0, turn: nextActive(s, from) }))
   }
+
+  // advance the tumble for as long as the roll is in flight. 8 frames x 60ms
+  // = 480ms, landing just inside the 500ms commit window, so the last frame is
+  // on screen when the result appears instead of the animation cutting off
+  // mid-tumble. The frame counter starts fresh in roll(), not here - setting
+  // state on this effect's own pass is what the set-state-in-effect rule is
+  // there to catch.
+  useEffect(() => {
+    if (!rolling) return
+    let f = 1
+    const id = setInterval(() => { f = f % 8 + 1; setSpinFrame(f) }, SPIN_FRAME_MS)
+    return () => clearInterval(id)
+  }, [rolling])
 
   // settle when someone wins
   useEffect(() => {
@@ -188,6 +242,9 @@ const roll = () => {
     const mine = ++rollToken.current
     const d = rollDice()
     setRolling(true)
+    // restart the tumble from frame 1 here rather than in the effect, so the
+    // effect never has to set state on its own render pass
+    setSpinFrame(1)
     setTimeout(() => {
       // always clear the spinner first: if this roll is stale the button must
       // not stay disabled forever
@@ -224,7 +281,15 @@ const roll = () => {
 
   return (
     <div className="app-frame flex min-h-[100dvh] flex-col" style={{
-      background: 'radial-gradient(circle at 20% 12%, rgba(90,170,255,.30), transparent 42%), radial-gradient(circle at 85% 85%, rgba(0,90,190,.35), transparent 45%), linear-gradient(170deg,#1560B4 0%,#0E4A93 45%,#0A3A78 100%)',
+      // The in-game background from the supplied assets (the blue diamond-tiled
+      // surface). Kept a flat gradient underneath: the pattern is dark, and this
+      // same surface is what the header text and seat panels sit on, so a light
+      // scrim keeps them legible without hiding the artwork.
+      backgroundImage: `linear-gradient(rgba(6,30,70,.38), rgba(6,30,70,.38)), url(${gameBg})`,
+      backgroundSize: 'cover, cover',
+      backgroundPosition: 'center, center',
+      backgroundRepeat: 'no-repeat, no-repeat',
+      backgroundColor: '#0A3A78',
     }}>
       <GameHeader title={t(m!.nameKey as any)} prizeMinor={m!.prizeMinor} extra={<VoiceButton />} gameType="ludo" />
 
@@ -253,10 +318,13 @@ const roll = () => {
 
           {/* dice (center, elevated) */}
           <button onClick={roll} disabled={!yourTurn || st.rolled || rolling || timer <= 0}
-            className={`relative z-10 -my-6 grid h-[68px] w-[68px] shrink-0 place-items-center rounded-full transition disabled:opacity-60 ${rolling ? 'animate-dice-tumble' : 'active:scale-95'}`}
+            // During a roll the frame sequence below IS the animation, so the CSS
+            // tumble is off - rotating the whole thing fights the artwork's own
+            // spin and the two never line up.
+            className={`relative z-10 -my-6 grid h-[68px] w-[68px] shrink-0 place-items-center rounded-full transition disabled:opacity-60 ${rolling ? 'scale-105' : 'active:scale-95'}`}
             style={{ background: 'radial-gradient(circle at 50% 35%, #FFF7DF, #F3D98F 70%, #D9A93F 100%)', border: '3px solid #FFE9AE', boxShadow: '0 10px 22px -6px rgba(0,0,0,.75), inset 0 -3px 6px rgba(0,0,0,.18)' }}
             aria-label="roll dice">
-            <LudoDiceFace value={st.dice ?? (yourTurn ? null : botDice)} />
+            <LudoDiceFace value={st.dice ?? (yourTurn ? null : botDice)} spinning={rolling} frame={spinFrame} />
           </button>
 
           {/* Com */}

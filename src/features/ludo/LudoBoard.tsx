@@ -1,5 +1,5 @@
-import { PATH, HOME_COL, CENTER, QUAD_AREA, BASE_SLOTS, cellFor } from '../../engine/ludoBoard'
-import { SAFE_ABS, START_OFFSET, COLORS, FINISH, type LudoState, type PlayerId } from '../../engine/ludo'
+import { PATH, cellFor } from '../../engine/ludoBoard'
+import { START_OFFSET, FINISH, type LudoState, type PlayerId } from '../../engine/ludo'
 import boardArt from '../../assets/ludoking/ludofinalboard2.png'
 import redPiece from '../../assets/ludoking/redpiece.png'
 import greenPiece from '../../assets/ludoking/greenpiece.png'
@@ -12,24 +12,7 @@ const N = 15
 const pct = (v: number) => `${(v * 100) / N}%`
 const key = (r: number, c: number) => `${r},${c}`
 
-/** mix a hex colour toward white (toward=255) or black (0), amount 0..1 */
-function mix(hex: string, toward: number, amount: number): string {
-  const n = parseInt(hex.slice(1), 16)
-  const f = (c: number) => Math.round(c + (toward - c) * amount)
-  return `rgb(${f((n >> 16) & 255)},${f((n >> 8) & 255)},${f(n & 255)})`
-}
-const lighten = (hex: string, a: number) => mix(hex, 255, a)
-const darken = (hex: string, a: number) => mix(hex, 0, a)
-
-/** the same colour as a lit plastic/enamel surface: lit from the top-left */
-function glossy(base: string, strength = 1): string {
-  return `linear-gradient(160deg, ${lighten(base, 0.42 * strength)} 0%, ${base} 42%, ${darken(base, 0.24 * strength)} 100%)`
-}
-
-function homeColOf(r: number, c: number): PlayerId | -1 {
-  for (const p of [0, 1, 2, 3] as PlayerId[]) if (HOME_COL[p].some(([hr, hc]) => hr === r && hc === c)) return p
-  return -1
-}
+/** which player's start square this path index is, or -1 */
 function startCellOf(onPath: number): PlayerId | -1 {
   for (const p of [0, 1, 2, 3] as PlayerId[]) if (onPath === START_OFFSET[p]) return p
   return -1
@@ -70,43 +53,35 @@ export function LudoBoard({ state, legal, onToken }: { state: LudoState; legal: 
     })
   )
 
-  const cells = []
-  for (let r = 0; r < N; r++) {
-    for (let c = 0; c < N; c++) {
-      const onPath = PATH.findIndex(([pr, pc]) => pr === r && pc === c)
-      const hc = homeColOf(r, c)
-      const isCenter = r === CENTER[0] && c === CENTER[1]
-      if (onPath < 0 && hc === -1 && !isCenter) continue
-
-      const start = startCellOf(onPath)
-      const isSafe = onPath >= 0 && SAFE_ABS.has(onPath)
-      // plain track squares are off-white plastic; start squares are the player colour
-      const base = hc !== -1 ? COLORS[hc] : start !== -1 ? COLORS[start] : '#FBF7EF'
-      const flat = start === -1 && hc === -1
-
-      cells.push(
-        <div key={key(r, c)} className="absolute" style={{ top: pct(r), left: pct(c), width: pct(1), height: pct(1) }}>
-          <div
-            className="grid h-full w-full place-items-center"
-            style={{
-              background: flat ? 'linear-gradient(150deg,#FFFFFF,#F1E7D6)' : glossy(base),
-              borderRadius: '14%',
-              // inset light top-left + dark bottom-right reads as a moulded tile
-              boxShadow: 'inset 0.5px 0.5px 0 rgba(255,255,255,.95), inset -0.5px -0.5px 0 rgba(0,0,0,.22), 0 1px 2px rgba(0,0,0,.18)',
-              boxSizing: 'border-box',
-            }}
-          >
-            {isSafe && start === -1 && (
-              <span className="text-[10px] font-black leading-none" style={{ color: 'rgba(120,90,30,.5)' }}>★</span>
-            )}
-            {start !== -1 && (
-              <span className="text-[9px] font-black leading-none" style={{ color: 'rgba(255,255,255,.98)', textShadow: '0 1px 1px rgba(0,0,0,.35)' }}>➜</span>
-            )}
-          </div>
-        </div>
-      )
-    }
-  }
+  // The artwork draws its start squares as a flat field of the player's colour -
+  // sampling the centre of all four comes back perfectly uniform, no glyph at
+  // all - so the entry arrow is the one thing laid on top of it. It is pointed
+  // down the direction that player actually travels: sampling PATH showed 0
+  // goes right from (6,1), 1 down from (1,8), 2 left from (8,13), 3 up from
+  // (13,6), so a single un-turned arrow would have been lying three times out
+  // of four. The safe stars need no help: all four are already in the art.
+  const arrows = PATH.map(([r, c], onPath) => {
+    const p = startCellOf(onPath)
+    if (p === -1) return null
+    return (
+      <div
+        key={key(r, c)}
+        className="absolute grid place-items-center"
+        style={{ top: pct(r), left: pct(c), width: pct(1), height: pct(1) }}
+      >
+        <span
+          className="text-[9px] font-black leading-none"
+          style={{
+            color: 'rgba(255,255,255,.98)',
+            textShadow: '0 1px 1px rgba(0,0,0,.35)',
+            transform: `rotate(${p * 90}deg)`,
+          }}
+        >
+          ➜
+        </span>
+      </div>
+    )
+  })
 
   return (
     // outer frame: gold-trimmed, bevelled, like a physical board
@@ -127,101 +102,37 @@ export function LudoBoard({ state, legal, onToken }: { state: LudoState; legal: 
         }}
       >
         {/*
-          The supplied board art, as the board surface beneath the playing grid.
+          The supplied board art IS the board - the yards, the track, the home
+          columns, the safe stars and the centre are all drawn in it, and the
+          code-drawn tiles that used to sit over it are gone. They were opaque
+          and on top, so this bitmap was completely invisible before: the
+          "background layer" was never actually seen.
 
-          Rotated 90 degrees on purpose. Sampling the PNG's 15x15 cell centres
-          gives yards of green / yellow / red / blue going top-left, top-right,
-          bottom-left, bottom-right, while this engine's players are red /
-          green / yellow / blue from the top-left clockwise. The artwork is the
-          same board turned a quarter turn, so without this the decorative
-          surface would disagree with every piece on it.
+          It is rotated 90 degrees on purpose. The PNG's own 15x15 cell centres
+          give yards of green / yellow / red / blue from the top-left, while
+          this engine puts red / green / yellow / blue there, so the artwork is
+          the same board a quarter turn off. That the rotation is right is not
+          an assumption - sampling confirmed all four quadrants, all four home
+          column strips and all four start squares land where the engine says
+          they should, and the grid lines between cells come back at lum 149
+          against an interior of 255, so cells stay separated under a piece.
 
-          It is a background layer, not a replacement for the grid: the track
-          tiles and yards below stay code-drawn and opaque. That is deliberate.
-          The art is a single flat bitmap and the engine needs exact grid
-          coordinates for legal moves, so overlaying it and trusting it to line
-          up would put tokens on the wrong squares the moment it was off by a
-          pixel - and there is no way to eyeball that here.
+          No scale factor. A square art in a square container rotated by a
+          quarter turn needs exactly none; the old scale(1.42) would have put
+          every cell 42% off the engine's grid, and nothing caught it only
+          because the art was hidden under the tiles.
         */}
         <img
           src={boardArt}
           alt=""
           aria-hidden="true"
           draggable={false}
-          className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-70"
-          style={{ transform: 'rotate(90deg) scale(1.42)', transformOrigin: 'center' }}
+          className="pointer-events-none absolute inset-0 h-full w-full object-cover"
+          style={{ transform: 'rotate(90deg)', transformOrigin: 'center' }}
         />
 
-        {/* four corner yards */}
-        {([0, 1, 2, 3] as PlayerId[]).map((p) => {
-          const [r0, c0, r1, c1] = QUAD_AREA[p]
-          return (
-            <div
-              key={p}
-              className="absolute"
-              style={{
-                top: pct(r0), left: pct(c0), width: pct(c1 - c0), height: pct(r1 - r0),
-                background: glossy(COLORS[p]),
-                borderRadius: '10%',
-                boxShadow: 'inset 0 0 0 1.5px rgba(255,255,255,.55), inset 0 -3px 10px rgba(0,0,0,.28), 0 2px 6px rgba(0,0,0,.2)',
-                boxSizing: 'border-box',
-              }}
-            >
-              {/* inner base plate holding the four start tokens */}
-              <div
-                className="absolute grid grid-cols-2 grid-rows-2"
-                style={{
-                  top: '16.667%', left: '16.667%', width: '66.667%', height: '66.667%',
-                  borderRadius: '14%',
-                  background: 'linear-gradient(160deg,#FFFFFF,#EFE3CC)',
-                  boxShadow: 'inset 0 2px 7px rgba(0,0,0,.28), 0 1px 0 rgba(255,255,255,.9)',
-                }}
-              >
-                {BASE_SLOTS[p].map((_, k) => (
-                  <div key={k} className="grid place-items-center">
-                    <span
-                      className="rounded-full"
-                      style={{
-                        width: '64%', height: '64%',
-                        border: `3px solid ${COLORS[p]}`,
-                        background: 'radial-gradient(circle at 40% 32%, #FFFFFF, #E4D3B4)',
-                        boxShadow: `inset 0 1px 3px rgba(0,0,0,.28), 0 0 7px ${lighten(COLORS[p], 0.45)}`,
-                      }}
-                    />
-                  </div>
-                ))}
-              </div>
-            </div>
-          )
-        })}
-
-        {/* track */}
-        {cells}
-
-        {/* centre: four glossy triangles pointing in, gold trophy on top */}
-        <div className="absolute" style={{ top: pct(6), left: pct(6), width: pct(3), height: pct(3) }}>
-          {([1, 2, 3, 0] as PlayerId[]).map((p, i) => {
-            const clips = [
-              'polygon(0 0,100% 0,50% 50%)',
-              'polygon(100% 0,100% 100%,50% 50%)',
-              'polygon(100% 100%,0 100%,50% 50%)',
-              'polygon(0 100%,0 0,50% 50%)',
-            ]
-            return (
-              <div key={p} className="absolute inset-0" style={{ clipPath: clips[i], background: glossy(COLORS[p]), filter: 'saturate(1.06)' }} />
-            )
-          })}
-          <span
-            className="absolute inset-0 grid place-items-center text-[13px]"
-            style={{ filter: 'drop-shadow(0 1px 2px rgba(0,0,0,.5))' }}
-          >
-            🏆
-          </span>
-          <div
-            className="absolute inset-0"
-            style={{ boxShadow: 'inset 0 0 12px rgba(0,0,0,.35)', borderRadius: '4%' }}
-          />
-        </div>
+        {/* entry arrows: the one mark the artwork does not carry */}
+        {arrows}
 
         {/* tokens */}
         {Object.entries(tokenAt).map(([k, list]) =>
