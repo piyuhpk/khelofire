@@ -451,13 +451,19 @@ begin
       select jsonb_agg(jsonb_build_object(
         'id', d.id, 'user', p.username, 'amount_minor', d.amount_minor,
         'method', d.method, 'ref', d.ref, 'ts', d.created_at))
-      from public.deposits d join public.profiles p on p.id = d.user_id
+      -- LEFT JOIN, deliberately. An inner join here meant a deposit was only
+      -- visible to staff if its user also had a profiles row, so one missing
+      -- profile silently removed a real payment request from the admin screen -
+      -- the request still existed and still held the player's money, it just
+      -- could not be approved, and the panel showed an empty queue with no error.
+      -- The username is decoration; it must not decide whether the row is shown.
+      from public.deposits d left join public.profiles p on p.id = d.user_id
       where d.status = 'pending' order by d.created_at desc limit 100), '[]'::jsonb),
     'withdrawals', coalesce((
       select jsonb_agg(jsonb_build_object(
         'id', w.id, 'user', p.username, 'amount_minor', w.amount_minor,
         'method', w.method, 'account', w.account, 'ts', w.created_at))
-      from public.withdrawals w join public.profiles p on p.id = w.user_id
+      from public.withdrawals w left join public.profiles p on p.id = w.user_id
       where w.status = 'pending' order by w.created_at desc limit 100), '[]'::jsonb)
   );
 end; $$;

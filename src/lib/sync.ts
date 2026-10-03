@@ -103,8 +103,14 @@ export async function loadUserData() {
     // Staff-only: the admin's deposit/withdrawal queue. The RPC returns empty
     // arrays for anyone who is not staff, so this is safe to call always - it
     // is what makes another player's request visible in the admin panel at all.
-    const pending = await wallet.fetchPendingRequests()
-    if (pending.deposits.length || pending.withdrawals.length) {
+    // Caught on its own rather than by the block above: a missing staff role is a
+    // fact about this account, and it must not read as a failure to load the
+    // player's own profile and matches, which is what the outer catch reports.
+    const pending = await wallet.fetchPendingRequests().catch((e) => {
+      notifyError('Could not load the pending requests queue', e)
+      return null
+    })
+    if (pending && (pending.deposits.length || pending.withdrawals.length)) {
       useStore.getState().setPendingRequests(pending)
     }
   } catch (e) {

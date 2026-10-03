@@ -144,7 +144,12 @@ export async function fetchPendingRequests(): Promise<{
   const empty = { deposits: [] as PendingRow[], withdrawals: [] as PendingRow[] }
   if (!hasSupabase || !supabase) return empty
   const { data, error } = await supabase.rpc('list_pending_requests')
-  if (error) return empty
+  // Was `if (error) return empty`, which is what made this look like "the deposits
+  // are gone". The RPC raising 'not authorised' - or anything else - rendered as an
+  // empty queue with no message, so a staff role that was never granted looked
+  // identical to a day with no pending requests. An empty list is a claim about the
+  // database; it needs to be distinguishable from a failed call.
+  if (error) throw new Error(error.message)
   const body = (data ?? {}) as { deposits?: PendingRow[]; withdrawals?: PendingRow[] }
   return { deposits: body.deposits ?? [], withdrawals: body.withdrawals ?? [] }
 }
