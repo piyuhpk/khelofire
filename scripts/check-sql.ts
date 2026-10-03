@@ -77,11 +77,38 @@ for (const file of files) {
     { re: /\btruncate\b/i, why: 'truncate' },
     { re: /\bdelete\s+from\s+public\.\w+\s*(;|$)/i, why: 'delete with no where clause' },
     { re: /\balter\s+table\s+public\.\w+\s+drop\b/i, why: 'alter table ... drop' },
-    { re: /\bdrop\s+function\b/i, why: 'drop function' },
   ]
   for (const d of destructive) {
     const hit = sql.match(d.re)
     if (hit) bad(file, `contains a destructive statement (${d.why}) - this file is meant to be additive only`)
+  }
+
+  // ---- 2b. `drop function` is allowed ONLY to change a signature.
+  //
+  // Postgres refuses CREATE OR REPLACE when the return type differs (42P13), so
+  // widening or narrowing one cannot be done in place - the old overload has to
+  // be dropped and recreated. That is not data loss, so banning it outright just
+  // guarantees migrations that cannot be applied.
+  //
+  // What IS worth banning is dropping a function and not putting it back, which
+  // would silently remove an ability something else depends on. So every drop has
+  // to be matched by a create of the same name and argument types later in the
+  // same file. A `cascade` is refused outright: it would happily take tables and
+  // views with it, which is never what a signature change needs.
+  const drops = [...sql.matchAll(/\bdrop\s+function\s+(?:if\s+exists\s+)?([\w.]+)\s*\(([^)]*)\)\s*([^;]*);/gi)]
+  for (const m of drops) {
+    const tail = m[3] ?? ''
+    if (/\bcascade\b/i.test(tail)) {
+      bad(file, `drop function ${m[1]} uses cascade - a signature change never needs to remove dependants`)
+      continue
+    }
+    const name = m[1].replace(/^public\./i, '').toLowerCase()
+    const types = argTypes(m[2]).toLowerCase()
+    const recreated = [...sql.matchAll(/create\s+or\s+replace\s+function\s+([\w.]+)\s*\(([^)]*)\)/gi)]
+      .some((c) => c[1].replace(/^public\./i, '').toLowerCase() === name && argTypes(c[2]).toLowerCase() === types)
+    if (!recreated) {
+      bad(file, `drop function ${m[1]}(${types}) is never recreated in this file - that removes it rather than changing it`)
+    }
   }
 
   const fns = functionBodies(sql)
