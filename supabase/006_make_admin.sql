@@ -106,12 +106,58 @@ end; $$;
 -- runs as postgres and is unaffected.
 revoke all on function public.create_first_admin(text, text) from public, anon, authenticated;
 
+-- ============ grant_staff: the second half of the job ============
+--
+-- create_first_admin stops on purpose when the account already exists, which
+-- leaves a real and common half-state: the user is in auth.users (signed up in
+-- the app, or made in the dashboard) but has no staff row, so the admin panel
+-- sees an ordinary player. Before this existed the only way out was to hand-paste
+-- a UUID into an INSERT.
+--
+-- Passwords are deliberately not touchable here. A SQL script cannot reset one
+-- correctly across Supabase versions - that is what went wrong three times while
+-- writing the file above - and it must not be able to, because a function that
+-- can set any account's password is a backdoor. Use Reset password in
+-- Authentication -> Users for that.
+create or replace function public.grant_staff(p_email text, p_role text default 'superadmin')
+returns uuid language plpgsql security definer set search_path = public as $$
+declare
+  v_uid uuid;
+begin
+  -- Same caller proof as create_first_admin: no signed-in session, owner only.
+  if auth.uid() is not null then
+    raise exception 'refusing: grant_staff cannot be called from a signed-in session';
+  end if;
+  if not exists (select 1 from pg_roles where rolname = current_user and (rolsuper or rolbypassrls)) then
+    raise exception 'refusing: grant_staff is restricted to the database owner';
+  end if;
+
+  if p_role not in ('admin', 'superadmin', 'support') then
+    raise exception 'unknown role %', p_role;
+  end if;
+
+  select id into v_uid from auth.users where lower(email) = lower(btrim(p_email));
+  if v_uid is null then raise exception 'no user with the email %', p_email; end if;
+
+  insert into public.staff (user_id, role) values (v_uid, p_role)
+  on conflict (user_id) do update set role = excluded.role;
+
+  if not exists (select 1 from public.profiles where id = v_uid) then
+    insert into public.profiles (id, username, player_id, referral_code)
+    values (v_uid, coalesce(nullif(split_part(v_uid::text, '-', 1), ''), 'Admin'),
+            'KV' || lpad((floor(random() * 900000) + 100000)::text, 6, '0'),
+            'KV' || upper(substr(md5(v_uid::text), 1, 4)));
+  end if;
+
+  return v_uid;
+end; $$;
+
+revoke all on function public.grant_staff(text, text) from public, anon, authenticated;
+
 -- If the account already exists (you made it in the dashboard, or it came in
 -- through Google sign-in), just grant staff on it:
 --
---   insert into public.staff (user_id, role)
---   select id, 'superadmin' from auth.users where lower(email) = 'khelofire@app.com'
---   on conflict (user_id) do update set role = 'superadmin';
+--   select public.grant_staff('khelofire@app.com', 'superadmin');
 
 -- Check it worked:
 --   select u.email, s.role from auth.users u join public.staff s on s.user_id = u.id;
