@@ -62,13 +62,17 @@ begin
   -- table and its shape differs between versions. Everything not named falls
   -- back to the column default, which is the right default for each of them.
   --
+  -- id is named explicitly because auth.users.id is `not null` with no default on
+  -- some projects, and the insert failed with 23502 where it does have one.
+  --
   -- crypt/gen_salt are called as extensions.crypt because pgcrypto lives in the
   -- `extensions` schema on Supabase, and this function sets search_path to
   -- public - the unqualified names do not resolve.
   insert into auth.users (
-    email, encrypted_password, email_confirmed_at,
+    id, email, encrypted_password, email_confirmed_at,
     raw_app_meta_data, raw_user_meta_data
   ) values (
+    gen_random_uuid(),
     lower(btrim(p_email)),
     extensions.crypt(p_password, extensions.gen_salt('bf')),
     now(),
