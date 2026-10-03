@@ -11,6 +11,10 @@
 //   POST <project>/functions/v1/admin-wallet
 //   Authorization: Bearer <the staff member's Supabase access token>
 //   { "kind": "deposit" | "withdrawal", "id": "<uuid>", "approve": true }
+//
+// Requires supabase/004_payments.sql - it calls the 3-arg decide_*(id, approve,
+// staff) form. The 2-arg form was neutralised on purpose so a stale deploy fails
+// loudly instead of approving with a NULL decided_by.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 
@@ -61,8 +65,13 @@ Deno.serve(async (req) => {
       return json({ error: 'expected { kind, id, approve }' }, 400)
     }
 
+    // p_staff is passed explicitly because the deciding staff id cannot be derived
+    // from the session here: this runs on the service_role key, which carries no
+    // user JWT, so auth.uid() inside the RPC is NULL. Passing it in is what makes
+    // deposits.decided_by / withdrawals.decided_by record a real person instead
+    // of NULL on every row.
     const fn = kind === 'deposit' ? 'decide_deposit' : 'decide_withdrawal'
-    const { error } = await admin.rpc(fn, { p_id: id, p_approve: approve })
+    const { error } = await admin.rpc(fn, { p_id: id, p_approve: approve, p_staff: caller.user.id })
     if (error) return json({ error: error.message }, 400)
 
     // audit trail

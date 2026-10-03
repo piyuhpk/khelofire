@@ -114,11 +114,22 @@ for (const file of files) {
     }
 
     // ---- 5. a MONEY path must prove who is calling. Narrow on purpose: trigger
-    //        functions and the deliberately-public leaderboard do not read
-    //        auth.uid() and must not be flagged.
+    //        functions and the deliberately-public leaderboard do not read the
+    //        caller and must not be flagged.
+    //
+    //        Two ways to prove it, because one of them is a lie in service-role
+    //        functions. A money function called with a user JWT proves the caller
+    //        with auth.uid(). One called with the service_role key - decide_deposit,
+    //        decide_withdrawal - has NO user JWT at all, so auth.uid() is NULL there.
+    //        Those functions used to satisfy this check only because they wrote
+    //        `decided_by = auth.uid()`, i.e. the check passed on the very line that
+    //        was silently recording NULL. What they actually assert is
+    //        `auth.role() <> 'service_role'` plus an explicit staff-id lookup, which
+    //        is a stronger proof than a non-null uid. Accept either, reject neither.
     const movesMoney = /available_minor|locked_minor|insert\s+into\s+public\.(transactions|settlements)|entry_locked/i.test(body)
-    if (movesMoney && !/auth\.uid\(\)/i.test(body)) {
-      bad(file, `${name}(${argTypes(args)}) moves money or locks an entry but never checks auth.uid()`)
+    const provesCaller = /auth\.uid\(\)/i.test(body) || /auth\.role\(\)[^;]*service_role/i.test(body)
+    if (movesMoney && !provesCaller) {
+      bad(file, `${name}(${argTypes(args)}) moves money or locks an entry but never proves who is calling (needs auth.uid() or a service_role check)`)
     }
 
     // ---- 6. every function needs an explicit privilege decision.
