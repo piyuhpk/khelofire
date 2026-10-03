@@ -69,8 +69,58 @@ export async function signIn(email: string, password: string) {
   useStore.getState().login(guessName(email))
 }
 
-export async function signUp(username: string, email: string, password: string) {
-  if (liveAuth && supabase) {
+/**
+ * Change the signed-in user's password.
+ *
+ * The current password is checked first, and that check is the point: without
+ * it, anyone who walks up to an unlocked admin phone - or anyone who gets hold
+ * of a session token - could lock the owner out permanently. The re-check is a
+ * real password verification (signInWithPassword), not a "are you still logged
+ * in" test.
+ *
+ * The session is intentionally NOT reused for the re-check, because signing in
+ * again would replace the session and silently sign out every other tab.
+ */
+export async function changePassword(currentPassword: string, newPassword: string) {
+  if (!liveAuth || !supabase) throw new Error('Password changes need Supabase configured')
+
+  if (newPassword.length < 8) throw new Error('Use at least 8 characters')
+
+  const { data: sess } = await supabase.auth.getSession()
+  const email = sess.session?.user.email
+  if (!email) throw new Error('Sign in again to change your password')
+
+  const { error: recheck } = await supabase.auth.signInWithPassword({ email, password: currentPassword })
+  if (recheck) throw new Error('Current password is wrong')
+
+  const { error } = await supabase.auth.updateUser({ password: newPassword })
+  if (error) throw new Error(error.message)
+}
+
+/**
+ * Change the signed-in user's email.
+ *
+ * Supabase only moves the address once the new one is confirmed, so this is a
+ * two-step thing: it asks for the confirmation and reports that plainly instead
+ * of pretending the account moved. The player keeps signing in with the old
+ * address until they click the link.
+ */
+export async function changeEmail(newEmail: string) {
+  if (!liveAuth || !supabase) throw new Error('Email changes need Supabase configured')
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(newEmail.trim())) throw new Error('That does not look like an email address')
+
+  const { error } = await supabase.auth.updateUser({ email: newEmail.trim() })
+  if (error) throw new Error(error.message)
+}
+
+/** The display name on the signed-in account, if there is one. */
+export async function currentEmail(): Promise<string | null> {
+  if (!liveAuth || !supabase) return null
+  const { data } = await supabase.auth.getSession()
+  return data.session?.user.email ?? null
+}
+
+export async function signUp(username: string, email: string, password: string) {  if (liveAuth && supabase) {
     const { error } = await supabase.auth.signUp({
       email,
       password,

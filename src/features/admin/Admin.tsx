@@ -7,6 +7,7 @@ import { GATEWAYS, isUsable } from '../../lib/payments/providers'
 import { useStore, type AdminUser, type CategoryImageConfig, type AdminRole, type AdminActivity, type AdminSettings, fileToBase64, validateImageFile } from '../../lib/store'
 import { supabase, hasSupabase } from '../../lib/supabase'
 import { useToast, Sheet } from '../../ui/components'
+import { changePassword, changeEmail, currentEmail } from '../../lib/auth'
 
 const TABS = [
   { id: 'Dashboard', Icon: LayoutDashboard }, { id: 'Users', Icon: Users }, { id: 'Roles', Icon: Shield },
@@ -65,6 +66,45 @@ export default function Admin() {
   const [unlocked, setUnlocked] = useState(isAdmin)
   const [tab, setTab] = useState<typeof TABS[number]['id']>('Dashboard')
 
+  // own-credential state (settings tab). The current password is asked for and
+  // verified, never stored, and never sent anywhere but Supabase's own auth.
+  const [myEmail, setMyEmail] = useState('')
+  const [newEmail, setNewEmail] = useState('')
+  const [curPw, setCurPw] = useState('')
+  const [newPw, setNewPw] = useState('')
+  const [credBusy, setCredBusy] = useState(false)
+
+  // Load the signed-in admin's own address once. There is no password to read -
+  // it never reaches the client, and that is the point.
+  useEffect(() => {
+    if (!hasSupabase) return
+    let alive = true
+    void currentEmail().then((e) => { if (alive && e) setMyEmail(e) })
+    return () => { alive = false }
+  }, [])
+
+  const doPw = async () => {
+    setCredBusy(true)
+    try {
+      await changePassword(curPw, newPw)
+      setCurPw(''); setNewPw('')
+      toast('Password updated', 'ok')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not update the password', 'err')
+    } finally { setCredBusy(false) }
+  }
+
+  const doEmail = async () => {
+    setCredBusy(true)
+    try {
+      await changeEmail(newEmail)
+      toast('Confirmation sent - check the new inbox', 'ok')
+      setNewEmail('')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not change the email', 'err')
+    } finally { setCredBusy(false) }
+  }
+
   // store data
   const users = useStore((s) => s.adminUsers)
   const roles = useStore((s) => s.adminRoles)
@@ -114,8 +154,8 @@ export default function Admin() {
   const [annBody, setAnnBody] = useState('')
   const [annTarget, setAnnTarget] = useState('all')
   const [bnTitle, setBnTitle] = useState('')
-  const [bnUrl, setBnUrl] = useState('')
-  // images tab state
+  const [bnUrl, setBnUrl] = useState('')  // images tab state
+
   const [modeImgId, setModeImgId] = useState('')
   const [modeBgUrl, setModeBgUrl] = useState('')
   const [modeThumbUrl, setModeThumbUrl] = useState('')
@@ -697,6 +737,39 @@ export default function Admin() {
             </div>
           ))}
           <div><label className="label">Min withdrawal (৳)</label><input type="number" className="input tnum" defaultValue={Math.round(site.minWithdrawMinor / 100)} onBlur={(e) => setSiteConfig({ minWithdrawMinor: toMinor(Number(e.target.value) || 0) })} onKeyDown={(e) => { if (e.key === 'Enter') (e.target as HTMLInputElement).blur() }} /></div>
+
+          {/* Your own sign-in details. These belong to the Supabase auth user,
+              not to anything in this app's own state - which is why they are not
+              editable as a "user record" like the ones in the Users tab. */}
+          <div className="space-y-3 border-t pt-4" style={{ borderColor: 'var(--line)' }}>
+            <div className="flex items-center gap-2 text-sm font-bold"><Shield className="h-4 w-4 text-emerald2" strokeWidth={2.2} />Your login</div>
+            {!hasSupabase ? (
+              <p className="text-xs text-muted">Supabase is not configured, so there is no account to change yet.</p>
+            ) : (
+              <>
+                <div><label className="label">Current email</label><input className="input" value={myEmail} readOnly /></div>
+
+                <div>
+                  <label className="label">Change email</label>
+                  <div className="flex gap-2">
+                    <input className="input" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="new@example.com" autoCapitalize="none" />
+                    <button onClick={doEmail} disabled={credBusy || !newEmail.trim() || newEmail.trim() === myEmail} className="btn-primary shrink-0 px-4">Save</button>
+                  </div>
+                  <p className="mt-1 text-[11px] text-muted">Supabase emails a confirmation link. Keep signing in with the old address until you click it.</p>
+                </div>
+
+                <div>
+                  <label className="label">Change password</label>
+                  <input type="password" className="input" value={curPw} onChange={(e) => setCurPw(e.target.value)} placeholder="Current password" autoComplete="current-password" />
+                  <input type="password" className="input mt-2" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="New password (min 8)" autoComplete="new-password" />
+                  <button onClick={doPw} disabled={credBusy || !curPw || newPw.length < 8} className="btn-primary mt-2 w-full">
+                    {credBusy ? 'Working…' : 'Update password'}
+                  </button>
+                  <p className="mt-1 text-[11px] text-muted">Your current password is checked first, so an unlocked phone cannot lock you out.</p>
+                </div>
+              </>
+            )}
+          </div>
         </div>
       )}
 
