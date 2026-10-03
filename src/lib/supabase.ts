@@ -7,6 +7,27 @@ const url = import.meta.env.VITE_SUPABASE_URL as string | undefined
 const anon = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
 /**
+ * Does this look like a key the browser is allowed to hold?
+ *
+ * Supabase has shipped two shapes and both are correct in the dashboard:
+ *   - the legacy `anon public` key: a JWT, three dot-separated parts starting eyJ
+ *   - the newer `publishable` key: sb_publishable_...
+ * An earlier version of this check only accepted the JWT form and rejected the
+ * publishable one, which is a key the dashboard hands out by default now - so it
+ * refused a perfectly good key and sent the user off to re-copy something that
+ * was already right.
+ *
+ * What it must still refuse is the `secret` key. That one is server-side only:
+ * shipped to a browser it would hand over the whole database.
+ */
+function looksLikeBrowserSafeKey(k: string): boolean {
+  const v = k.trim()
+  if (/^sb_secret_/i.test(v)) return false
+  if (/^sb_publishable_/i.test(v)) return true
+  return v.split('.').length === 3
+}
+
+/**
  * What is actually wrong with the .env, if anything.
  *
  * This used to be `Boolean(url && anon)` - a presence check and nothing else. So
@@ -25,11 +46,11 @@ export const envProblem: string | null = !url
     ? 'VITE_SUPABASE_ANON_KEY is missing from .env'
     : !/^https:\/\/[a-z0-9-]+\.supabase\.(co|in)$/i.test(url.trim())
       ? `VITE_SUPABASE_URL does not look like a Supabase URL: ${JSON.stringify(url)}`
-      // Supabase's publishable key is a JWT; the legacy anon key is too. A value
-      // that is neither is a paste mistake, not a key.
-      : anon.trim().split('.').length !== 3
-        ? 'VITE_SUPABASE_ANON_KEY does not look like a Supabase key (expected 3 dot-separated parts)'
-        : null
+      : /^sb_secret_/i.test(anon.trim())
+        ? 'VITE_SUPABASE_ANON_KEY is a SECRET key. Never put it in .env - it ships to every browser and hands over the whole database. Use the anon public key or the publishable key.'
+        : !looksLikeBrowserSafeKey(anon)
+          ? `VITE_SUPABASE_ANON_KEY does not look like a Supabase key: ${JSON.stringify(anon.slice(0, 12))}... - expected the anon public key or a publishable key`
+          : null
 
 /** true once VITE_SUPABASE_URL + VITE_SUPABASE_ANON_KEY are set AND look right */
 export const hasSupabase = envProblem === null
