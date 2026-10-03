@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { Chess, type Square } from 'chess.js'
 import { useT } from '../../i18n'
 import { modeById } from '../../lib/catalog'
@@ -30,9 +30,7 @@ export default function ChessGame() {
   const [result, setResult] = useState<Outcome | null>(null)
   const [subtitle, setSubtitle] = useState<string>()
   const [lastSq, setLastSq] = useState<Square[]>([])
-  const loc = useLocation()
-  const isReal = (loc.state as any)?.real === true
-  const oppName = isReal ? 'Live Player' : t('game.bot')
+  const oppName = t('game.bot')
   const settled = useRef(false)
   const inc = 3000
 
@@ -100,7 +98,7 @@ export default function ChessGame() {
         extra={<><button onClick={() => { if (confirm('Offer draw?')) finish('draw', t('result.drawConsent')) }} className="text-lg" aria-label="draw">🤝</button><VoiceButton /></>} gameType="chess" />
 
       <div className="flex items-center justify-between px-4 py-2 text-white">
-        <div className="flex items-center gap-2"><span className="text-lg">{isReal ? '🟢' : '🤖'}</span><span className="text-sm font-bold">{oppName}</span>{isReal && <span className="chip bg-danger text-white text-[10px] font-extrabold">LIVE</span>}</div>
+        <div className="flex items-center gap-2"><span className="text-lg">{'\u{1F916}'}</span><span className="text-sm font-bold">{oppName}</span></div>
         <span className={`chip font-mono ${game.current.turn() === 'b' && !result ? 'bg-danger' : 'bg-black/30'} text-white`}>{fmtClock(bClock)}</span>
       </div>
 

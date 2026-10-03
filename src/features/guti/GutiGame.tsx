@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useT } from '../../i18n'
 import { modeById } from '../../lib/catalog'
 import { useStore, type Outcome } from '../../lib/store'
@@ -25,9 +25,7 @@ export default function GutiGame() {
   const [chain, setChain] = useState(false)
   const [result, setResult] = useState<Outcome | null>(null)
   const settled = useRef(false)
-  const loc = useLocation()
-  const isReal = (loc.state as any)?.real === true
-  const oppName = isReal ? 'Live Player' : t('game.bot')
+  const oppName = t('game.bot')
   const delta = result === 'win' ? m!.prizeMinor - m!.entryMinor : result === 'loss' ? -m!.entryMinor : 0
 
   const finish = (outcome: Outcome) => {
@@ -85,7 +83,7 @@ export default function GutiGame() {
       <GameHeader title={t('home.guti')} prizeMinor={m!.prizeMinor} extra={<VoiceButton />} gameType="guti" />
 
       <div className="flex items-center justify-between px-5 py-2.5 text-white">
-        <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-full text-base" style={{ background: 'rgba(255,92,105,.2)' }}>{isReal ? '🟢' : '🤖'}</span><span className="text-sm font-bold">{oppName}</span>{isReal && <span className="chip bg-danger text-white text-[10px] font-extrabold">LIVE</span>}</div>
+        <div className="flex items-center gap-2"><span className="grid h-8 w-8 place-items-center rounded-full text-base" style={{ background: 'rgba(255,92,105,.2)' }}>{'\u{1F916}'}</span><span className="text-sm font-bold">{oppName}</span></div>
         <span className="chip text-white" style={{ background: turn === 2 && !result ? 'var(--danger)' : 'rgba(255,255,255,.1)' }}>{botLeft} {t('guti.pieces')}</span>
       </div>
 

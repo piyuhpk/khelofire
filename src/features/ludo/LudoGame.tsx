@@ -1,10 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useParams, useNavigate, useLocation } from 'react-router-dom'
-import { useT } from '../../i18n'
+import { useT, useI18n } from '../../i18n'
 import { modeById } from '../../lib/catalog'
 import { useStore, type Outcome } from '../../lib/store'
+import { readState, sendAction, subscribeMatch, settleMatch, LiveError, type LiveGameState } from '../../lib/live'
 import { GameHeader, VoiceButton, ExitModal, ResultModal } from '../game/GameShell'
 import { MatchChat } from '../game/MatchChat'
+import { useToast } from '../../ui/components'
 import { LudoBoard } from './LudoBoard'
 import dice1 from '../../assets/ludoking/dice1.png'
 import dice2 from '../../assets/ludoking/dice2.png'
@@ -116,6 +118,8 @@ export default function LudoGame() {
   const { modeId } = useParams()
   const m = modeById(modeId!)
   const t = useT()
+  const { lang } = useI18n()
+  const toast = useToast()
   const nav = useNavigate()
   const settle = useStore((s) => s.settle)
   const username = useStore((s) => s.username) || t('common.guest')
@@ -134,16 +138,30 @@ export default function LudoGame() {
   // result is stale instead of writing rolled:true onto somebody else's turn
   const rollToken = useRef(0)
 
-  const yourTurn = st.turn === 0 && st.winner === null && !result
   const loc = useLocation()
-  const isReal = (loc.state as any)?.real === true
-  const nameFor = (p: PlayerId) => (p === 0 ? username : isReal ? `Player ${p}` : (BOT_NAMES[p] || `${COLOR_NAME[p]} Bot`))
-  const avatarFor = (p: PlayerId) => (p === 0 ? avatar : isReal ? '👤' : ['👤', '🤖', '🐯', '🦊'][p])
+  // `isReal` used to come from navigation state, which meant "somebody handed us
+  // { real: true }" - and the only thing that ever did was a presence count of
+  // browsers on the same lobby screen. That labelled a solo bot game as a live
+  // match. A game is real when a real seat exists, and that now arrives as a
+  // match id from the room-code flow. Nothing can set it by asking nicely.
+  const matchId = ((loc.state as any)?.matchId as string | undefined) ?? undefined
+  const isReal = !!matchId
+  // which engine seat this device owns. 0 until the server answers, and 0 in a
+  // bot game, which is where it has always been.
+  const [yourSeat, setYourSeat] = useState<PlayerId>(0)
+
+  const yourTurn = st.turn === yourSeat && st.winner === null && !result
+  const nameFor = (p: PlayerId) => (p === yourSeat ? username : isReal ? `Player ${p}` : (BOT_NAMES[p] || `${COLOR_NAME[p]} Bot`))
+  const avatarFor = (p: PlayerId) => (p === yourSeat ? avatar : isReal ? '👤' : ['👤', '🤖', '🐯', '🦊'][p])
   const homeCount = (p: PlayerId) => st.tokens[p].filter((x) => x >= FINISH).length
 
   // single place that hands the turn on, so every exit path (timeout, no legal
   // move, three sixes, forfeit) clears the same transient state
   const passTurn = (from: PlayerId) => {
+    // live: the server decides who moves next, and it also handles the three
+    // sixes rule and the empty-board pass. Asking it is the only correct way to
+    // hand the turn on, and it stops a client from passing out of turn.
+    if (matchId) { void liveAct('pass'); return }
     rollToken.current++
     setLegal([])
     setMsg('')
@@ -213,6 +231,7 @@ export default function LudoGame() {
   // and returns early without bumping the token, so phase 2 still fires.
   useEffect(() => {
     const p = st.turn
+    if (matchId) return // real opponent: the server drives, never the bot
     if (result || st.winner !== null || p === 0 || st.rolled || st.dice !== null) return
     const mine = ++rollToken.current
     // phase 0: tumble the shared dice while the bot "thinks", exactly like a
@@ -248,10 +267,95 @@ export default function LudoGame() {
       }, 650)
     }, 900)
     return () => { clearTimeout(id); setRolling(false) }
-  }, [st, result]) // eslint-disable-line
+  }, [st, result, matchId]) // eslint-disable-line
 
+  // ---- live match --------------------------------------------------------
+  //
+  // In a real table the board belongs to the server. Every state write below
+  // goes through sendAction/readState and replaces the local board with what
+  // came back, so the dice, the legal moves and the turn are all decided by the
+  // engine - a modified client cannot roll a six or move a token it does not own.
+  //
+  // The local bot loop is switched off entirely when there is a matchId. That is
+  // the whole point: the old bug was a bot playing a solo game wearing a LIVE
+  // badge, and the cheapest way to be sure it cannot come back is for there to be
+  // no bot code path at all when a real opponent is seated.
+  const liveVersion = useRef(0)
+  const liveBusy = useRef(false)
+
+  /**
+   * Adopt a board the server produced.
+   *
+   * The engine's board is the same shape as the local one, so this is a cast and
+   * a copy rather than a translation - but it is done in one place, and the
+   * version guard is here: two replies can be in flight at once (the poll and a
+   * realtime nudge), and applying an older board on top of a newer one would walk
+   * a token backwards.
+   */
+  const adopt = useCallback((v: LiveGameState) => {
+    if (v.version <= liveVersion.current) return
+    liveVersion.current = v.version
+    if (v.your_seat !== undefined) setYourSeat(v.your_seat as PlayerId)
+
+    const n = v.state.tokens.length
+    const board: LudoState = {
+      ...initLudo(n),
+      tokens: v.state.tokens,
+      turn: v.state.turn as PlayerId,
+      dice: v.state.dice,
+      rolled: v.state.rolled,
+      sixes: v.state.sixes,
+      winner: v.state.winner as PlayerId | null,
+    }
+    setSt(board)
+    setTimer(v.seconds_left)
+
+    // Which tokens are tappable is a UI affordance, not a decision - the engine
+    // re-checks the move and rejects anything illegal, so showing a stale
+    // highlight cannot produce an illegal board.
+    setLegal(
+      board.rolled && board.dice != null && board.winner === null
+        ? legalTokens(board, board.turn, board.dice)
+        : [],
+    )
+  }, [])
+
+  // Pull the board on open, and keep pulling it: realtime messages are a nudge
+  // and can be dropped, so the state shown is always one the server confirmed.
+  useEffect(() => {
+    if (!matchId) return
+    let alive = true
+    let timerId: number | undefined
+
+    const pull = async () => {
+      try {
+        const v = await readState(matchId)
+        if (alive) adopt(v)
+      } catch {
+        // transient - retried on the next tick or on the next realtime nudge
+      }
+    }
+    void pull()
+    const unsub = subscribeMatch(matchId, () => void pull())
+    timerId = window.setInterval(() => void pull(), 4000)
+    return () => { alive = false; unsub(); if (timerId) clearInterval(timerId) }
+  }, [matchId, adopt])
+
+  const liveAct = useCallback(async (action: 'roll' | 'move' | 'pass', token?: number) => {
+    if (!matchId || liveBusy.current) return null
+    liveBusy.current = true
+    try {
+      const v = await sendAction(matchId, action, token)
+      adopt(v)
+      return v
+    } catch (e) {
+      toast(liveErr(e, lang === 'bn'), 'err')
+      return null
+    } finally {
+      liveBusy.current = false
+    }
+  }, [matchId, adopt, toast, lang])
   const pendingPass = useRef<number | null>(null)
-  // phase 2 of a bot roll (the token move, a beat after its dice lands). This
   // lives in a ref on purpose: the phase-1 commit re-runs the turn effect
   // below, and if that cleanup cancelled this timer the bot would show its die
   // and freeze - the old two-timeout bug. It is cleared when the match ends
@@ -277,6 +381,22 @@ export default function LudoGame() {
 
 const roll = () => {
     if (!yourTurn || rolling || st.rolled || timer <= 0) return
+
+    // A live roll is not animated from a local dice value, because there is no
+    // local dice value: the number comes back from the engine. The tumble still
+    // plays, and the revealed face is the one the server actually rolled.
+    if (matchId) {
+      setRolling(true); setSpinFrame(1)
+      void liveAct('roll').then((v) => {
+        setRolling(false)
+        if (!v) return
+        setMsg(v.state.dice != null && v.state.rolled
+          ? (legalTokens(st, yourSeat, v.state.dice).length ? t('ludo.selectToken') : t('ludo.noMove'))
+          : '')
+      })
+      return
+    }
+
     const mine = ++rollToken.current
     const d = rollDice()
     setRolling(true)
@@ -308,6 +428,15 @@ const roll = () => {
 
   const onToken = (i: number) => {
     if (!yourTurn || !st.rolled || st.dice == null) return
+    // live: ask the engine, then render whatever it decided
+    if (matchId) {
+      setLegal([])
+      void liveAct('move', i).then((v) => {
+        if (!v) return
+        setMsg(v.state.turn === v.your_seat && v.state.winner === null ? t('ludo.rollAgain') : '')
+      })
+      return
+    }
     const res = applyMove(st, 0, i, st.dice)
     setLegal([])
     setSt(res.state)
@@ -335,7 +464,7 @@ const roll = () => {
       <div className="flex flex-wrap justify-center gap-2 px-3 pt-2">
         {opponents.map((p) => <Seat key={p} p={p} name={nameFor(p)} avatar={avatarFor(p)} active={st.turn === p && st.winner === null} home={homeCount(p)} />)}
       </div>
-      {isReal && <p className="pt-1 text-center text-[11px] font-extrabold text-emerald2">● LIVE · Real Player</p>}
+      {isReal && <p className="pt-1 text-center text-[11px] font-extrabold text-emerald2">● LIVE · real player seated</p>}
 
       <div className="flex flex-1 items-center justify-center px-3 py-2">
         <LudoBoard state={st} legal={legal} onToken={onToken} />
@@ -391,12 +520,35 @@ const roll = () => {
       </div>
 
       <div className="px-3 pb-3 pt-1 flex gap-2">
-        <button onClick={() => { if (!settled.current) { settled.current = true; settle({ game: 'ludo', mode: t(m!.nameKey as any), modeId: m!.id, entryMinor: m!.entryMinor, prizeMinor: m!.prizeMinor, outcome: 'loss', deltaMinor: -m!.entryMinor }); setResult('loss') } }} className="btn-danger flex-1 py-2 text-sm">{t('game.resign')}</button>
-        <MatchChat opponentName={nameFor(opponents[0] ?? 1)} roomId={modeId ?? m!.id} />
+        <button onClick={() => {
+          if (settled.current) return
+          settled.current = true
+          if (matchId) {
+            // In a live match the wallet is not this component's business. The
+            // database decides the outcome from winner_seat, and it refuses
+            // anything that is not genuinely finished - so a resign mid-match
+            // cannot mint a loss locally, and cannot claim a win either.
+            void settleMatch(matchId, 'loss').finally(() => nav('/'))
+            return
+          }
+          settle({ game: 'ludo', mode: t(m!.nameKey as any), modeId: m!.id, entryMinor: m!.entryMinor, prizeMinor: m!.prizeMinor, outcome: 'loss', deltaMinor: -m!.entryMinor })
+          setResult('loss')
+        }} className="btn-danger flex-1 py-2 text-sm">{t('game.resign')}</button>
+        <MatchChat opponentName={nameFor(opponents[0] ?? 1)} roomId={matchId ?? modeId ?? m!.id} />
       </div>
 
       <ExitModal onLeave={() => nav('/')} />
-      <ResultModal outcome={result} deltaMinor={result === 'win' ? m!.prizeMinor - m!.entryMinor : -m!.entryMinor} moves={homeCount(0)} />
+      <ResultModal outcome={result} deltaMinor={result === 'win' ? m!.prizeMinor - m!.entryMinor : -m!.entryMinor} moves={homeCount(yourSeat)} />
     </div>
   )
+}
+
+/** A live failure the player can do something about, in their language. */
+function liveErr(e: unknown, bn: boolean): string {
+  const msg = e instanceof LiveError ? e.message : ''
+  if (/not seated/i.test(msg)) return bn ? 'আপনি এই ম্যাচে বসা নেই' : 'You are not seated in this match'
+  if (/not signed in|Sign in again/i.test(msg)) return bn ? 'আবার লগইন করুন' : 'Please sign in again'
+  if (/deadline|expired|too slow/i.test(msg)) return bn ? 'সময় শেষ — অপোনেন্টের চাল' : 'Out of time — opponent plays on'
+  if (/not your turn/i.test(msg)) return bn ? 'এখন আপনার চাল নয়' : 'Not your turn'
+  return msg || (bn ? 'কিছু গলতি হয়েছে' : 'Something went wrong')
 }

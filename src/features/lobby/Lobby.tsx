@@ -30,6 +30,14 @@ export default function Lobby() {
           <Icon className="h-5 w-5" strokeWidth={2.2} />
         </span>
         <h1 className="font-display text-lg font-extrabold">{title}</h1>
+        {/* Real tables. Only Ludo has a server-authoritative engine behind it, so
+            this is offered here and not on the other games' lobbies. */}
+        {gk === 'ludo' && (
+          <button onClick={() => nav('/live/ludo')} className="btn-emerald ml-auto flex items-center gap-1.5 px-3 py-2 text-xs font-extrabold">
+            <Users className="h-4 w-4" strokeWidth={2.6} />
+            {lang === 'bn' ? 'লাইভ টেবিল' : 'Live table'}
+          </button>
+        )}
       </div>
 
       {!ready ? (

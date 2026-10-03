@@ -10,6 +10,7 @@ import Auth from './features/auth/Auth'
 import Home from './features/home/Home'
 import Lobby from './features/lobby/Lobby'
 import ConfirmJoin from './features/lobby/ConfirmJoin'
+import LiveTables from './features/lobby/LiveTables'
 import LudoGame from './features/ludo/LudoGame'
 import ChessGame from './features/chess/ChessGame'
 import GutiGame from './features/guti/GutiGame'
@@ -38,6 +39,8 @@ const router = createBrowserRouter([
   { path: '/login', element: <Auth /> },
   // Login is required only to JOIN a paid match. Free/practice games open directly.
   { path: '/join/:modeId', element: <RequireAuth><ConfirmJoin /></RequireAuth> },
+  { path: '/live', element: <RequireAuth><LiveTables /></RequireAuth> },
+  { path: '/live/:game', element: <RequireAuth><LiveTables /></RequireAuth> },
   { path: '/wallet', element: <RequireAuth><Wallet /></RequireAuth> },
   { path: '/profile', element: <RequireAuth><Profile /></RequireAuth> },
   { path: '/matches', element: <RequireAuth><MyMatches /></RequireAuth> },

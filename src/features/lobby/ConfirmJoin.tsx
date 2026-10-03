@@ -6,7 +6,6 @@ import { fmt } from '../../lib/money'
 import { useStore } from '../../lib/store'
 import { rateLimit } from '../../lib/ratelimit'
 import { Spinner, useToast } from '../../ui/components'
-import { useQueueCount, pingQueueReady } from '../../lib/realtime'
 
 export default function ConfirmJoin() {
   const { modeId } = useParams()
@@ -20,13 +19,11 @@ export default function ConfirmJoin() {
   const unlockEntry = useStore((s) => s.unlockEntry)
   const [phase, setPhase] = useState<'confirm' | 'matching'>('confirm')
   const [waited, setWaited] = useState(false)
-  const online = useQueueCount(modeId ?? '')
 
   const insufficient = !m || available < m.entryMinor
   const isFree = !m || m.entryMinor === 0
-  const realFound = online >= 2
 
-  const go = (real: boolean) => { if (m) nav(`/play/${m.game}/${m.id}`, { replace: true, state: { real } }) }
+  const goBot = () => { if (m) nav(`/play/${m.game}/${m.id}`, { replace: true }) }
 
   const join = () => {
     if (!m) return
@@ -36,24 +33,34 @@ export default function ConfirmJoin() {
     if (m.entryMinor > 0 && !lockEntry(m.entryMinor, `Entry · ${t(m.nameKey as any)}`)) { toast(t('match.insufficient'), 'err'); return }
     setPhase('matching')
     setWaited(false)
-    pingQueueReady(m.id)
-    // free practice = instant bot game; paid = wait for real player, else choice
-    if (isFree) setTimeout(() => go(false), 1200)
+    // Free practice = instant bot game. Paid = a real table, reached by room
+    // code from the Live tab, never from here. See below.
+    if (isFree) setTimeout(goBot, 1200)
   }
 
-  // Paid: wait for a real player, and if nobody comes, refund.
+  // Paid: wait briefly, then refund if no table was joined.
   //
-  // There used to be a "Play vs Bot" button here for paid modes. It was a trap:
-  // the entry was already locked, the game ran entirely on the phone, and the
-  // server was never told the match existed - so the entry stayed locked and,
-  // before settle_match was revoked, could even be claimed as a prize. Paid means
-  // a real opponent or your money back. The bot stays on free modes.
+  // There is deliberately NO way for this screen to start a live match, and the
+  // reason is worth keeping in the code.
+  //
+  // It used to do `realFound = online >= 2` and navigate with `state: { real: true }`.
+  // `online` came from useQueueCount, which counts PRESENCE on a queue channel -
+  // i.e. how many browsers are sitting on this mode's screen. It says nothing
+  // about being in the same match. Nothing was ever seated, no state was shared,
+  // and the game itself ran entirely on the phone against the local bot. So two
+  // people who happened to open the same mode at the same time each paid an
+  // entry, each played a solo bot game, and each was shown "LIVE - Real Player".
+  //
+  // A real live match is create_live_match(code) -> join_live_match(code) ->
+  // start_live_match, with the board driven by the ludo-game edge function. It
+  // needs an actual seat, so it is entered from the Live tab with a room code and
+  // not from here. Until that flow is wired up, the honest answer for a paid mode
+  // is: no opponent, refund.
   useEffect(() => {
     if (phase !== 'matching' || isFree) return
-    if (realFound) { const id = setTimeout(() => go(true), 1200); return () => clearTimeout(id) }
-    const id = setTimeout(() => setWaited(true), 10000)
+    const id = setTimeout(() => setWaited(true), 8000)
     return () => clearTimeout(id)
-  }, [phase, isFree, realFound]) // eslint-disable-line
+  }, [phase, isFree])
 
   const cancelRefund = () => {
     if (!m) return
@@ -69,15 +76,24 @@ export default function ConfirmJoin() {
         style={{ background: m.game === 'chess' ? 'linear-gradient(160deg,#0A6B41,#083D26)' : 'linear-gradient(160deg,#0F1E3D,#16264A)' }}>
         <div className="text-7xl animate-pulse">{m.game === 'chess' ? '♘' : '🎲'}</div>
         <Spinner className="h-8 w-8" />
-        <p className="font-semibold">{t('match.findingOpponent')}</p>
-        <p className="text-xs text-white/70 tnum">{online} online · {isFree ? (lang === 'bn' ? 'ফ্রি ম্যাচ — বটের সাথে' : 'Free match — vs bot') : realFound ? (lang === 'bn' ? 'আসল প্লেয়ার মিলেছে ✓' : 'Real player found ✓') : (lang === 'bn' ? 'আসল প্লেয়ারের অপেক্ষা…' : 'Waiting for real player…')}</p>
-        {!isFree && waited && !realFound && (
+        <p className="font-semibold">{isFree ? t('match.findingOpponent') : (lang === 'bn' ? 'Live টেবিল দরকার' : 'A Live table is required')}</p>
+        <p className="text-xs text-white/70 tnum">{isFree ? (lang === 'bn' ? 'ফ্রি ম্যাচ — বটের সাথে' : 'Free match — vs bot') : (lang === 'bn' ? 'রিয়েল ম্যাচের জন্য Live ট্যাবে রুম কোড দিন' : 'For a real opponent, join a table in the Live tab with a room code')}</p>
+        {!isFree && (
           <div className="w-full space-y-2 rounded-2xl p-4" style={{ background: 'rgba(0,0,0,.3)' }}>
-            <p className="text-xs text-white/80">{lang === 'bn' ? 'কেউ আসেনি। আপনার টাকা ফেরত নিন।' : 'No one joined. Take your entry back.'}</p>
-            <button onClick={cancelRefund} className="btn-primary w-full">{lang === 'bn' ? 'রিফান্ড নিন' : 'Refund & Back'}</button>
+            <p className="text-xs text-white/80">
+              {waited
+                ? (lang === 'bn' ? 'এই মোডে রিয়েল-প্লেয়ার ম্যাচ এখানে শুরু হয় না। আপনার টাকা ফেরত নিন।' : 'Real-player matches for this mode are not started from here. Take your entry back.')
+                : (lang === 'bn' ? 'খুঁজছি…' : 'Checking…')}
+            </p>
+            {waited && (
+              <>
+                <button onClick={cancelRefund} className="btn-primary w-full">{lang === 'bn' ? 'রিফান্ড নিন' : 'Refund & Back'}</button>
+                <button onClick={() => nav('/live')} className="btn-ghost w-full">{lang === 'bn' ? 'Live টেবিল খুলুন' : 'Open a Live table'}</button>
+              </>
+            )}
           </div>
         )}
-        <div className="flex gap-1">{[0, 1, 2].map((i) => <span key={i} className="h-2 w-2 rounded-full bg-white/60 animate-bounce" style={{ animationDelay: `${i * 150}ms` }} />)}</div>
+        {isFree && <div className="flex gap-1">{[0, 1, 2].map((i) => <span key={i} className="h-2 w-2 rounded-full bg-white/60 animate-bounce" style={{ animationDelay: `${i * 150}ms` }} />)}</div>}
       </div>
     )
   }

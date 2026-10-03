@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { useParams, useNavigate, useLocation } from 'react-router-dom'
+import { useParams, useNavigate } from 'react-router-dom'
 import { useT } from '../../i18n'
 import { modeById } from '../../lib/catalog'
 import { useStore, type Outcome } from '../../lib/store'
@@ -54,9 +54,7 @@ export default function DiceGame() {
   const [roundMsg, setRoundMsg] = useState<string>('')
   const [result, setResult] = useState<Outcome | null>(null)
   const settled = useRef(false)
-  const loc = useLocation()
-  const isReal = (loc.state as any)?.real === true
-  const oppName = isReal ? 'Live Player' : t('game.bot')
+  const oppName = t('game.bot')
   const delta = result === 'win' ? m!.prizeMinor - m!.entryMinor : result === 'loss' ? -m!.entryMinor : 0
 
   const finish = (outcome: Outcome, ms: number, bs: number) => {
@@ -99,7 +97,7 @@ export default function DiceGame() {
       <GameHeader title="Dice Duel" prizeMinor={m!.prizeMinor} extra={<VoiceButton />} gameType="dice" />
 
       <div className="flex items-center justify-between px-5 py-3 text-white">
-        <div className="flex items-center gap-2"><span className="grid h-9 w-9 place-items-center rounded-full text-lg" style={{ background: 'rgba(255,92,105,.2)' }}>{isReal ? '🟢' : '🤖'}</span><div><div className="text-sm font-bold leading-tight">{oppName}{isReal && ' · LIVE'}</div><div className="text-[11px] text-white/60">{t('dice.score')}: {botScore}</div></div></div>
+        <div className="flex items-center gap-2"><span className="grid h-9 w-9 place-items-center rounded-full text-lg" style={{ background: 'rgba(255,92,105,.2)' }}>{'\u{1F916}'}</span><div><div className="text-sm font-bold leading-tight">{oppName}</div><div className="text-[11px] text-white/60">{t('dice.score')}: {botScore}</div></div></div>
         <span className="chip tnum text-white" style={{ background: stage === 'bot' ? 'var(--danger)' : 'rgba(255,255,255,.1)' }}>{botScore}</span>
       </div>
 

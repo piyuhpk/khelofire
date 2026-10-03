@@ -16,7 +16,12 @@
 //
 // Call (Authorization must be the player's own Supabase access token):
 //   POST <project>/functions/v1/ludo-game
-//   { "match_id": "<uuid>", "action": "roll" | "move" | "pass", "token": 0 }
+//   { "match_id": "<uuid>", "action": "roll" | "move" | "pass" | "state", "token": 0 }
+//
+//   "state" is read-only and reports the board, the clock and your seat. It is
+//   gated on the same seat check as a move, so it reveals nothing to a
+//   non-participant, and it is how a client learns the opponent's moves without
+//   having to submit one.
 
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import {
@@ -36,7 +41,7 @@ const cors = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 }
 
-type Action = 'roll' | 'move' | 'pass'
+type Action = 'roll' | 'move' | 'pass' | 'state'
 
 // The exact columns this function selects. Written out rather than inferred
 // because the supabase client is stubbed for typechecking (see deno.d.ts), and an
@@ -97,8 +102,8 @@ Deno.serve(async (req) => {
     const body = await req.json().catch(() => null)
     const matchId = body?.match_id as string | undefined
     const action = body?.action as Action | undefined
-    if (!matchId || !['roll', 'move', 'pass'].includes(action ?? '')) {
-      return json({ error: 'expected { match_id, action: roll|move|pass, token? }' }, 400)
+    if (!matchId || !['roll', 'move', 'pass', 'state'].includes(action ?? '')) {
+      return json({ error: 'expected { match_id, action: roll|move|pass|state, token? }' }, 400)
     }
     if (action === 'move' && !Number.isInteger(body?.token)) {
       return json({ error: 'move needs an integer token' }, 400)
@@ -140,6 +145,13 @@ Deno.serve(async (req) => {
       turn_seconds: TURN_SECONDS,
       ...extra,
     })
+
+    // `state` is read-only: it reports the board and the clock without touching
+    // the turn or the version. A seated client needs it to paint the opponent's
+    // moves and to resync after a dropped realtime message, and without it the
+    // only way to learn the board would be to make a move - which is exactly the
+    // thing a client must never be forced to do just to see the game.
+    if (action === 'state') return json(view())
 
     if (match.status !== 'live') return json(view())
     if (!isUsableState(match.state)) {

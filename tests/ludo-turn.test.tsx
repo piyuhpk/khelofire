@@ -12,6 +12,7 @@ vi.mock('../src/lib/store', () => ({
 }))
 vi.mock('../src/i18n', () => ({
   useT: () => (k: string) => k,
+  useI18n: () => ({ lang: 'en' }),
 }))
 vi.mock('../src/features/game/MatchChat', () => ({ MatchChat: () => null }))
 vi.mock('../src/features/game/GameShell', () => ({
