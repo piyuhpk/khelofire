@@ -39,7 +39,7 @@ function PinToken({ p, dim = false }: { p: PlayerId; dim?: boolean }) {
 }
 
 export function LudoBoard({ state, legal, onToken }: { state: LudoState; legal: number[]; onToken: (i: number) => void }) {
-  const tokenAt: Record<string, { p: PlayerId; i: number }[]> = {}
+  const tokenAt: Record<string, { p: PlayerId; i: number; pos: number }[]> = {}
   // Finished tokens all share the single centre square. Fanning them out by
   // token index keeps all four visible instead of burying three under one.
   const FINISHED_SLOT: Record<number, [number, number]> = {
@@ -49,7 +49,7 @@ export function LudoBoard({ state, legal, onToken }: { state: LudoState; legal: 
     state.tokens[p].forEach((pos, i) => {
       let [r, c] = cellFor(p, pos, i)
       if (pos >= FINISH) { r += FINISHED_SLOT[i][0]; c += FINISHED_SLOT[i][1] }
-      ;(tokenAt[`${r.toFixed(2)},${c.toFixed(2)}`] ||= []).push({ p, i })
+      ;(tokenAt[`${r.toFixed(2)},${c.toFixed(2)}`] ||= []).push({ p, i, pos })
     })
   )
 
@@ -86,11 +86,11 @@ export function LudoBoard({ state, legal, onToken }: { state: LudoState; legal: 
   return (
     // outer frame: gold-trimmed, bevelled, like a physical board
     <div
-      className="mx-auto w-full max-w-[420px] p-[7px]"
+      className="mx-auto w-full max-w-[420px] p-[4px]"
       style={{
-        borderRadius: 20,
-        background: 'linear-gradient(155deg,#FFE9A8 0%,#E8B84B 28%,#C98F2E 62%,#8A5E17 100%)',
-        boxShadow: '0 20px 44px -14px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.85), inset 0 -2px 6px rgba(90,55,0,.45)',
+        borderRadius: 18,
+        background: 'linear-gradient(155deg,#3A4034 0%,#262B23 55%,#171B16 100%)',
+        boxShadow: '0 18px 40px -16px rgba(0,0,0,.78)',
       }}
     >
       <div
@@ -136,7 +136,7 @@ export function LudoBoard({ state, legal, onToken }: { state: LudoState; legal: 
 
         {/* tokens */}
         {Object.entries(tokenAt).map(([k, list]) =>
-          list.map(({ p, i }, si) => {
+          list.map(({ p, i, pos }, si) => {
             const [r, c] = k.split(',').map(Number)
             const isLegal = p === 0 && p === state.turn && legal.includes(i)
             const n = list.length
@@ -145,8 +145,20 @@ export function LudoBoard({ state, legal, onToken }: { state: LudoState; legal: 
             // the rest of the pile was invisible.
             const scale = n > 1 ? 1 / (1 + (n - 1) * 0.22) : 1
             const spread = (si - (n - 1) / 2) * (n > 2 ? 0.46 : 0.42)
-            const w = 5.9 * scale
-            const h = 7.4 * scale
+            // redpiece.png is 80x106 with a 70px-wide head - 0.875 of the image
+            // width - so 7.8% of the board puts that head at 1.02 cells across,
+            // just over the 1.0-cell circle it has to sit in. At the old 5.9% the
+            // head was 0.77 cells and only ever filled the middle of the circle,
+            // which is why every waiting piece looked like a peg in a ring.
+            const w = 7.8 * scale
+            const h = 10.3 * scale
+            // The head is not at the middle of the PNG: its centre is y=40.5 of
+            // 106, so 0.382 down. In the yard BASE_SLOTS points at the centre of
+            // a circle and only -38.2% puts the head on that centre; -50% drops
+            // it 0.18 cells high and leaves the bottom of the circle showing
+            // through. On the track there is no circle to fill, and -50% is what
+            // keeps a pin on row 14 from being cut off by the board edge.
+            const ty = pos === 0 ? '-38.2%' : '-50%'
             return (
               <button
                 key={`${p}-${i}`}
@@ -159,7 +171,7 @@ export function LudoBoard({ state, legal, onToken }: { state: LudoState; legal: 
                   left: `calc(${pct(c)} + ${pct(0.5)} + ${spread * (100 / N)}%)`,
                   top: `calc(${pct(r)} + ${pct(0.5)})`,
                   width: `${w}%`, height: `${h}%`,
-                  transform: 'translate(-50%, -50%)',
+                  transform: `translate(-50%, ${ty})`,
                   background: 'transparent', border: 'none', padding: 0,
                 }}
                 aria-label={`token ${p}-${i}`}

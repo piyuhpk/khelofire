@@ -122,12 +122,18 @@ console.log('=== LUDO: every token renders inside the board, centred on a cell =
   console.log(`  ${checked} token placements checked, all within bounds`)
 }
 
-console.log('=== LUDO: yard slots sit on the centre of the drawn circle ===')
+console.log('=== LUDO: yard slots anchor on the centre of the drawn circle ===')
 for (const p of [0, 1, 2, 3] as PlayerId[]) {
   const [r0, c0, r1, c1] = QUAD_AREA[p]
-  // the white plate is inset one cell and 4 cells wide inside the quad
-  const rows = [r0 + 1 + 1, r0 + 1 + 3] // quadrant centres, half-cell values
-  const cols = [c0 + 1 + 1, c0 + 1 + 3]
+  // the plate is inset one cell, so it runs quad+1 .. quad+5; each circle is one
+  // cell across and centred on quad+2 / quad+4.
+  const circles = [r0 + 1 + 1, r0 + 1 + 3]
+  const circlesC = [c0 + 1 + 1, c0 + 1 + 3]
+  // LudoBoard anchors a token at value+0.5, so what BASE_SLOTS holds is the
+  // circle centre minus that half cell. Compare like with like.
+  const off = 0.5
+  const rows = [circles[0] - off, circles[1] - off]
+  const cols = [circlesC[0] - off, circlesC[1] - off]
   const got = BASE_SLOTS[p]
   for (let k = 0; k < 4; k++) {
     const [r, c] = got[k]
@@ -135,10 +141,12 @@ for (const p of [0, 1, 2, 3] as PlayerId[]) {
     const dc = Math.min(Math.abs(c - cols[0]), Math.abs(c - cols[1]))
     // tight on purpose. This used to allow 1.01 cells of error - a quarter of a
     // square - which is exactly the size of the mistake it exists to catch, so
-    // the check passed while every waiting piece sat off its circle.
-    if (dr > 0.01 || dc > 0.01) bad(`player ${p} yard slot ${k} at (${r},${c}) is not on a drawn circle (expect r~${rows} c~${cols})`)
+    // the check passed while every waiting piece sat off its circle. It also
+    // compared stored values against raw circle centres, ignoring the renderer's
+    // half-cell anchor, which is the other way to get this wrong.
+    if (dr > 0.01 || dc > 0.01) bad(`player ${p} yard slot ${k} at (${r},${c}) anchors off a drawn circle at (${rows}, ${cols})`)
   }
-  console.log(`  player ${p}: quad [${r0},${c0},${r1},${c1}] slots ${JSON.stringify(got)}`)
+  console.log(`  player ${p}: quad [${r0},${c0},${r1},${c1}] circle centres [${circles},${circlesC}] stored ${JSON.stringify(got)}`)
 }
 
 console.log('=== LUDO: bot must not park tokens in enemy dice range ===')
