@@ -54,22 +54,26 @@ begin
     raise exception 'a user with % already exists - do not reset it here, just run the staff insert at the bottom', p_email;
   end if;
 
-  -- encrypted_password is exactly what Supabase itself stores: bcrypt over its
-  -- own salt, so the column never holds plain text.
+  -- Only the columns that are stable across Supabase versions are named here.
+  -- An earlier version of this script listed the full auth.users column set
+  -- (instance_id, confirmation_token, recovery_token,
+  -- email_change_token_new, recovery_token_expires_at, ...) and it failed on
+  -- projects where those columns do not exist - auth.users is Supabase's own
+  -- table and its shape differs between versions. Everything not named falls
+  -- back to the column default, which is the right default for each of them.
+  --
+  -- crypt/gen_salt are called as extensions.crypt because pgcrypto lives in the
+  -- `extensions` schema on Supabase, and this function sets search_path to
+  -- public - the unqualified names do not resolve.
   insert into auth.users (
-    instance_id, email, encrypted_password, email_confirmed_at,
-    raw_app_meta_data, raw_user_meta_data, aud, role,
-    created_at, updated_at, confirmation_token, recovery_token,
-    email_change_token_new, recovery_token_expires_at
+    email, encrypted_password, email_confirmed_at,
+    raw_app_meta_data, raw_user_meta_data
   ) values (
-    '00000000-0000-0000-0000-000000000000',
     lower(btrim(p_email)),
-    crypt(p_password, gen_salt('bf')),
+    extensions.crypt(p_password, extensions.gen_salt('bf')),
     now(),
     '{"provider":"email","providers":["email"]}',
-    '{"provider":"email","providers":["email"]}',
-    'authenticated', 'authenticated',
-    now(), now(), '', '', '', 0
+    '{"provider":"email","providers":["email"]}'
   )
   returning id into v_uid;
 
