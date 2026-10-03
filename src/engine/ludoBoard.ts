@@ -32,15 +32,25 @@ export const HOME_COL: Record<PlayerId, Cell[]> = {
 export const CENTER: Cell = [7, 7]
 
 // four token slots inside each 6x6 corner yard.
-// The yard draws a white 2x2 plate inset one cell from the quad edge, so each
-// quadrant's centre is a half-cell coordinate. These used to be whole cells
-// ([2,2] etc.), which parked every waiting piece half a square up-and-left of
-// the circle it belongs on.
+// The yard draws a white plate inset one cell from each quad edge, so it spans
+// quad+1 .. quad+5 (4 cells wide). Each slot circle in the supplied artwork is
+// one cell across, centred on quad+2 and quad+4 - measured from
+// ludofinalboard2.png by scanning a row and a column straight through the yard:
+// the coloured circle runs 1.5..2.45 and 3.5..4.45, which puts its centres at
+// 2.0 and 4.0. scripts/check-games.ts computes the same quad+2 / quad+4
+// independently and compares against it.
+//
+// These were half-cell values ([1.5, 1.5] and friends) on the theory that a
+// 2x2 plate makes each quadrant's centre land on a half cell. That is not what
+// the plate is: it is 4 cells divided into 2x2 halves of 2 cells each, so the
+// halves are centred on whole cells. The half-cell version parked every waiting
+// piece a quarter square off the circle it sits on - visible as pieces crowded
+// into the top-left of their circle rather than inside it.
 export const BASE_SLOTS: Record<PlayerId, Cell[]> = {
-  0: [[1.5, 1.5], [1.5, 3.5], [3.5, 1.5], [3.5, 3.5]],   // top-left
-  1: [[1.5, 10.5], [1.5, 12.5], [3.5, 10.5], [3.5, 12.5]], // top-right
-  2: [[10.5, 10.5], [10.5, 12.5], [12.5, 10.5], [12.5, 12.5]], // bottom-right
-  3: [[10.5, 1.5], [10.5, 3.5], [12.5, 1.5], [12.5, 3.5]],   // bottom-left
+  0: [[2, 2], [2, 4], [4, 2], [4, 4]],          // top-left
+  1: [[2, 11], [2, 13], [4, 11], [4, 13]],      // top-right
+  2: [[11, 11], [11, 13], [13, 11], [13, 13]],  // bottom-right
+  3: [[11, 2], [11, 4], [13, 2], [13, 4]],      // bottom-left
 }
 
 // 6x6 corner areas [rowStart, colStart, rowEnd, colEnd]

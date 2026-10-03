@@ -133,7 +133,10 @@ for (const p of [0, 1, 2, 3] as PlayerId[]) {
     const [r, c] = got[k]
     const dr = Math.min(Math.abs(r - rows[0]), Math.abs(r - rows[1]))
     const dc = Math.min(Math.abs(c - cols[0]), Math.abs(c - cols[1]))
-    if (Math.abs(dr) > 1.01 || Math.abs(dc) > 1.01) bad(`player ${p} yard slot ${k} at (${r},${c}) is not on a drawn circle (expect r~${rows} c~${cols})`)
+    // tight on purpose. This used to allow 1.01 cells of error - a quarter of a
+    // square - which is exactly the size of the mistake it exists to catch, so
+    // the check passed while every waiting piece sat off its circle.
+    if (dr > 0.01 || dc > 0.01) bad(`player ${p} yard slot ${k} at (${r},${c}) is not on a drawn circle (expect r~${rows} c~${cols})`)
   }
   console.log(`  player ${p}: quad [${r0},${c0},${r1},${c1}] slots ${JSON.stringify(got)}`)
 }
