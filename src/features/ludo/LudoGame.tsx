@@ -19,15 +19,64 @@ const DICE_PIPS: Record<number, [number, number][]> = {
   6: [[0, 0], [0, 2], [1, 0], [1, 2], [2, 0], [2, 2]],
 }
 
+/**
+ * Glossy 3D die, Ludo King style: an ivory cube face sitting in perspective,
+ * dark recessed pips, and a specular sweep across the top-left. The tilt and
+ * the bevel are what make it read as a physical object rather than a flat
+ * rounded square with dots on it.
+ */
 function LudoDiceFace({ value }: { value: number | null }) {
-  if (value == null) return <span className="text-3xl">🎲</span>
+  if (value == null) {
+    return (
+      <span
+        className="grid h-14 w-14 place-items-center rounded-[14px] text-[26px]"
+        style={{
+          background: 'linear-gradient(155deg,#FFFDF6 0%,#F3E7CE 55%,#DCC79C 100%)',
+          border: '2px solid rgba(255,255,255,.9)',
+          boxShadow: 'inset 0 -4px 8px rgba(120,90,30,.3), inset 0 3px 6px rgba(255,255,255,.95), 0 4px 10px rgba(0,0,0,.45)',
+        }}
+      >
+        🎲
+      </span>
+    )
+  }
   return (
-    <span className="grid h-12 w-12 grid-cols-3 grid-rows-3 gap-[3px] rounded-[10px] p-2"
-      style={{ background: 'linear-gradient(145deg,#FF3B47 0%,#E11D24 45%,#9F0F16 100%)', border: '2px solid rgba(255,255,255,.85)', boxShadow: 'inset 0 -4px 7px rgba(0,0,0,.45), inset 0 3px 5px rgba(255,255,255,.35), 0 3px 8px rgba(0,0,0,.5)' }}>
+    <span
+      className="relative grid h-14 w-14 grid-cols-3 grid-rows-3 gap-[2px] rounded-[14px] p-[9px]"
+      style={{
+        background: 'linear-gradient(155deg,#FFFFFF 0%,#FBF4E4 45%,#E4D0AA 100%)',
+        border: '2px solid rgba(255,255,255,.95)',
+        boxShadow: 'inset 0 -4px 8px rgba(120,90,30,.32), inset 0 3px 6px rgba(255,255,255,.98), 0 5px 12px rgba(0,0,0,.5)',
+        transform: 'perspective(220px) rotateX(16deg) rotateY(-14deg)',
+      }}
+    >
       {Array.from({ length: 9 }).map((_, k) => {
         const on = DICE_PIPS[value].some(([r, c]) => r * 3 + c === k)
-        return <span key={k} className="place-self-center rounded-full" style={{ height: on ? 9 : 0, width: on ? 9 : 0, background: 'radial-gradient(circle at 35% 30%,#FFFFFF,#E8E8E8)' }} />
+        return (
+          <span
+            key={k}
+            className="place-self-center rounded-full"
+            style={{
+              height: on ? 11 : 0,
+              width: on ? 11 : 0,
+              // recessed: dark pip with a light lower rim, the inverse of the pips
+              // being drawn on top
+              background: 'radial-gradient(circle at 38% 32%, #4A4A55 0%, #1B1B24 60%, #0C0C12 100%)',
+              boxShadow: 'inset 0 1px 2px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.75)',
+            }}
+          />
+        )
       })}
+      {/* specular sweep */}
+      <span
+        className="pointer-events-none absolute inset-0 overflow-hidden"
+        style={{ borderRadius: '14px' }}
+      >
+        <span
+          className="absolute -left-1/3 -top-1/2 h-full w-2/3"
+          style={{ background: 'linear-gradient(105deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.55) 50%,rgba(255,255,255,0) 100%)', transform: 'rotate(8deg)' }}
+        />
+      </span>
     </span>
   )
 }

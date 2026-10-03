@@ -119,26 +119,42 @@ describe('Ludo turn machinery', () => {
   it('hands the turn on when the player rolls and never picks a token', async () => {
     mount('ludo_practice')
 
-    // keep rolling until the dice actually offers a token to pick, so this
-    // exercises the "waiting for a pick" state rather than the no-legal-move
-    // auto-pass. off the yard only a six moves anything.
-    let picks = 0
-    for (let i = 0; i < 15 && picks === 0; i++) {
+    // Off the yard only a six moves anything, so this test cannot run at all
+    // without one. It used to hope for one: 15 rolls of a fair die is only ~93%,
+    // and far fewer than 15 of those iterations are actually the player's turn,
+    // because the bot needs time to move in between. Measured at 2-3 failures in
+    // 4 runs, which is a coin flip rather than a test - and it fails on the code
+    // it is meant to protect just as readily as on a real regression. Force the
+    // six rather than gambling on it.
+    const random = vi.spyOn(Math, 'random').mockReturnValue(0.999)
+    try {
+      let picks = 0
+      for (let i = 0; i < 15 && picks === 0; i++) {
+        await tick(1000)
+        const dice = screen.getByLabelText('roll dice') as HTMLButtonElement
+        if (dice.disabled) continue
+        await act(async () => { dice.click(); await Promise.resolve() })
+        await tick(600)
+        picks = legalTokens().length
+      }
+      expect(picks).toBeGreaterThan(0)
+
+      // Only the player's roll needed forcing. Leaving the die rigged for the
+      // rest of the test meant the bot also rolled sixes forever, never hit the
+      // three-sixes limit in time to hand the turn back, and the final assertion
+      // failed on the dice still being disabled - a failure caused by the fix
+      // rather than by the bug.
+      random.mockRestore()
+
+      // deliberately never click a token
+      await tick(25_000)
+
+      // the turn must have moved on and handed the dice back
       await tick(1000)
-      const dice = screen.getByLabelText('roll dice') as HTMLButtonElement
-      if (dice.disabled) continue
-      await act(async () => { dice.click(); await Promise.resolve() })
-      await tick(600)
-      picks = legalTokens().length
+      expect((screen.getByLabelText('roll dice') as HTMLButtonElement).disabled).toBe(false)
+    } finally {
+      random.mockRestore()
     }
-    expect(picks).toBeGreaterThan(0)
-
-    // deliberately never click a token
-    await tick(25_000)
-
-    // the turn must have moved on and handed the dice back
-    await tick(1000)
-    expect((screen.getByLabelText('roll dice') as HTMLButtonElement).disabled).toBe(false)
   })
 
   // The countdown can fire inside the 500ms dice animation. Committing blindly
