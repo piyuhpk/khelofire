@@ -1,6 +1,13 @@
 // Minimal service worker — enables PWA install + basic offline shell.
-// Network-first for navigations (always fresh app), cache fallback when offline.
-const CACHE = 'khelofire-v1'
+// Network-first everywhere (always fresh app), cache fallback when offline.
+//
+// It used to be cache-first for every same-origin GET, under a fixed cache name.
+// That is what makes a released fix look like it "didn't happen": the old bundle
+// is already in the cache, so the app keeps booting the build it was installed
+// with, and because the name never changed the activate handler - which only
+// deletes caches whose name differs - had nothing to purge. Stale-while-
+// revalidate keeps the offline shell without ever shadowing a new bundle.
+const CACHE = 'khelofire-v2'
 const SHELL = ['/', '/index.html', '/logo.jpg', '/manifest.webmanifest']
 
 self.addEventListener('install', (e) => {
@@ -17,15 +24,14 @@ self.addEventListener('fetch', (e) => {
   const url = new URL(req.url)
   // never cache Supabase / cross-origin API calls
   if (url.origin !== self.location.origin) return
-  if (req.mode === 'navigate') {
-    e.respondWith(fetch(req).catch(() => caches.match('/index.html')))
-    return
-  }
   e.respondWith(
-    caches.match(req).then((hit) => hit || fetch(req).then((res) => {
-      const copy = res.clone()
-      caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {})
-      return res
-    }).catch(() => hit))
+    // network first: a hit only stands in when the network is gone
+    fetch(req)
+      .then((res) => {
+        const copy = res.clone()
+        caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {})
+        return res
+      })
+      .catch(() => caches.match(req))
   )
 })
