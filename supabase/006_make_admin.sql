@@ -81,13 +81,22 @@ begin
   )
   returning id into v_uid;
 
-  -- the profile row the app reads for name/avatar/balance
-  insert into public.profiles (id, username, available_minor, locked_minor, wins, games)
-  values (v_uid, 'Khelofire Admin', 0, 0, 0, 0)
-  on conflict (id) do nothing;
+  -- No profile insert here on purpose. handle_new_user() is an AFTER INSERT
+  -- trigger on auth.users and it already creates the row, filling in player_id
+  -- and referral_code - both of which are NOT NULL with no default. Inserting
+  -- again from here was both redundant and wrong: it named a `games` column that
+  -- does not exist, and it would have fought the trigger for the same row.
+  --
+  -- The only thing left to do is the grant.
 
   insert into public.staff (user_id, role) values (v_uid, 'superadmin')
   on conflict (user_id) do update set role = 'superadmin';
+
+  -- Fail loudly if the trigger ever stops firing, rather than leaving an account
+  -- that can sign in but has no profile and 500s on every query.
+  if not exists (select 1 from public.profiles where id = v_uid) then
+    raise exception 'user % was created but no profile row exists - the handle_new_user trigger did not run', p_email;
+  end if;
 
   return v_uid;
 end; $$;
