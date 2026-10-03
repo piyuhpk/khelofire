@@ -160,6 +160,16 @@ begin
 end; $$;
 grant execute on function public.request_deposit(bigint, text, text) to authenticated;
 
+-- Postgres will not let CREATE OR REPLACE change a function's return type: the
+-- existing overload has to go first. schema.sql declared this one as `returns
+-- uuid`; it now returns void because the caller no longer needs the new row's id
+-- (it gets the request back from list_pending_requests instead).
+--
+-- Dropping takes the grants with it, which is why the `grant execute` below is
+-- not optional. Nothing inside the database depends on this function - the app
+-- calls it over RPC at runtime - so the drop has nothing to cascade through.
+drop function if exists public.request_withdrawal(bigint, text, text);
+
 create or replace function public.request_withdrawal(p_amount_minor bigint, p_method text, p_account text)
 returns void language plpgsql security definer set search_path = public as $$
 declare
