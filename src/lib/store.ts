@@ -1,12 +1,12 @@
-﻿import { create } from 'zustand'
+import { create } from 'zustand'
 import { persist } from 'zustand/middleware'
 import { toMinor } from './money'
-import { hasSupabase } from './supabase'
+import { hasSupabase, supabase } from './supabase'
 import * as wallet from './wallet'
 import type { PendingRow } from './wallet'
 import { notify, notifyError } from './notice'
 
-/** true once Supabase keys exist â€” then money is decided by the server, not here */
+/** true once Supabase keys exist — then money is decided by the server, not here */
 const liveMode = hasSupabase
 
 // sync.ts imports this file, so importing it back statically would be a cycle.
@@ -14,7 +14,7 @@ const liveMode = hasSupabase
 const refreshFromServer = () =>
   import('./sync').then((m) => m.loadUserData()).catch((e) => notifyError('Refresh failed', e))
 
-// Helper to convert file to base64 â€” auto-downscaled so big uploads can never
+// Helper to convert file to base64 — auto-downscaled so big uploads can never
 // blow the ~5MB localStorage quota (which would silently break ALL saves)
 export const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
@@ -121,6 +121,18 @@ export interface BonusConfig { welcomeMinor: number; referralMinor: number; dail
 // server-side secret store, not in a Zustand object that ships to the browser,
 // and there is no gateway integration for a key to unlock.
 export interface PaymentConfig { provider: string; merchantId: string }
+
+/**
+ * Which gateway the server says is live. Read from active_gateway() rather than
+ * trusted from the client, because "a gateway is on" is a security claim: if the
+ * browser can decide it, so can anyone who edits a request.
+ */
+export interface LiveGateway {
+  provider: string
+  mode: 'manual' | 'auto'
+  merchant_id: string
+  reason: string
+}
 export interface SiteConfig { maintenance: boolean; minWithdrawMinor: number; voiceFee: boolean; chessEnabled: boolean }
 // NOTE: no adminPin. The old settings object carried the admin password in
 // plain localStorage, so anyone could read it from their own phone (and
@@ -158,6 +170,7 @@ interface DemoState {
   banners: AdminBanner[]
   bonusConfig: BonusConfig
   paymentConfig: PaymentConfig
+  liveGateway: LiveGateway
   siteConfig: SiteConfig
   categoryImages: CategoryImageConfig
   gameModeImages: GameModeImageConfig
@@ -183,6 +196,7 @@ interface DemoState {
   toggleBanner: (id: string) => void
   setBonusConfig: (patch: Partial<BonusConfig>) => void
   setPaymentConfig: (patch: Partial<PaymentConfig>) => void
+  refreshLiveGateway: () => Promise<void>
   setSiteConfig: (patch: Partial<SiteConfig>) => void
   setAdminSettings: (patch: Partial<AdminSettings>) => void
   addAdminUser: (u: Omit<AdminUser, 'id' | 'joined'>) => void
@@ -213,15 +227,15 @@ const uid = () => Math.random().toString(36).slice(2, 10)
 const txn = () => 'TXN' + Date.now().toString(36).toUpperCase() + uid().slice(0, 4).toUpperCase()
 
 const seedNotifs: Notif[] = [
-  { id: uid(), type: 'welcome', titleBn: 'à¦¸à§à¦¬à¦¾à¦—à¦¤à¦®! à¦–à§‡à¦²à¦¾ à¦¶à§à¦°à§ à¦•à¦°à§à¦¨', titleEn: 'Welcome! Start playing', ts: Date.now(), read: false },
-  { id: uid(), type: 'tournament', titleBn: 'à¦¨à¦¤à§à¦¨ à¦²à§à¦¡à§ à¦Ÿà§à¦°à§à¦¨à¦¾à¦®à§‡à¦¨à§à¦Ÿ à¦²à¦¾à¦‡à¦­', titleEn: 'New Ludo tournament live', ts: Date.now() - 3600e3, read: false },
+  { id: uid(), type: 'welcome', titleBn: 'স্বাগতম! খেলা শুরু করুন', titleEn: 'Welcome! Start playing', ts: Date.now(), read: false },
+  { id: uid(), type: 'tournament', titleBn: 'নতুন লুডু টুর্নামেন্ট লাইভ', titleEn: 'New Ludo tournament live', ts: Date.now() - 3600e3, read: false },
 ]
 
 const initial = {
   authed: false, // open app browses freely; login is required only to play/join a match
   username: '',
   playerId: 'KV' + Math.floor(100000 + Math.random() * 899999),
-  avatar: 'ðŸ¦',
+  avatar: '🦁',
   referralCode: 'KV' + uid().slice(0, 6).toUpperCase(),
   availableMinor: toMinor(440),
   lockedMinor: 0,
@@ -236,7 +250,7 @@ const initial = {
   ] as Referral[],
   referralEarnedMinor: toMinor(40),
   announcements: [
-    { id: uid(), titleBn: 'à¦¸à¦¾à¦ªà§à¦¤à¦¾à¦¹à¦¿à¦• à¦®à§‡à¦—à¦¾ à¦Ÿà§à¦°à§à¦¨à¦¾à¦®à§‡à¦¨à§à¦Ÿ!', titleEn: 'Weekly Mega Tournament!', bodyBn: 'à¦¶à§à¦•à§à¦°à¦¬à¦¾à¦° à¦°à¦¾à¦¤ à§¯à¦Ÿà¦¾à¦¯à¦¼ â€” à§³5000 à¦ªà§à¦°à¦¾à¦‡à¦œ à¦ªà§à¦²à¥¤', bodyEn: 'Friday 9PM â€” à§³5000 prize pool.', ts: Date.now() - 6 * 36e5 },
+    { id: uid(), titleBn: 'সাপ্তাহিক মেগা টুর্নামেন্ট!', titleEn: 'Weekly Mega Tournament!', bodyBn: 'শুক্রবার রাত ৯টায় — ৳5000 প্রাইজ পুল।', bodyEn: 'Friday 9PM — ৳5000 prize pool.', ts: Date.now() - 6 * 36e5 },
   ] as Announcement[],
   dismissedAnnId: null as string | null,
   isAdmin: false,
@@ -263,11 +277,14 @@ const initial = {
     auditLogRetentionDays: 90 
   } as AdminSettings,
   banners: [
-    { id: uid(), titleEn: 'Play Ludo, Win Money!', titleBn: 'à¦²à§à¦¡à§ à¦–à§‡à¦²à§à¦¨, à¦Ÿà¦¾à¦•à¦¾ à¦œà¦¿à¦¤à§à¦¨!', url: '', active: true },
-    { id: uid(), titleEn: 'Refer a friend, get a bonus!', titleBn: 'à¦¬à¦¨à§à¦§à§à¦•à§‡ à¦†à¦¨à§à¦¨, à¦¬à§‹à¦¨à¦¾à¦¸ à¦¨à¦¿à¦¨!', url: '', active: true },
+    { id: uid(), titleEn: 'Play Ludo, Win Money!', titleBn: 'লুডু খেলুন, টাকা জিতুন!', url: '', active: true },
+    { id: uid(), titleEn: 'Refer a friend, get a bonus!', titleBn: 'বন্ধুকে আনুন, বোনাস নিন!', url: '', active: true },
   ] as AdminBanner[],
   bonusConfig: { welcomeMinor: toMinor(50), referralMinor: toMinor(20), dailyMinor: toMinor(5), depositPct: 5 } as BonusConfig,
   paymentConfig: { provider: 'bKash', merchantId: '' } as PaymentConfig,
+  // Starts manual on purpose. Until active_gateway() says otherwise, deposits go
+  // down the manual path - which works - rather than assuming a gateway exists.
+  liveGateway: { provider: 'manual', mode: 'manual', merchant_id: '', reason: 'not checked yet' } as LiveGateway,
   siteConfig: { maintenance: false, minWithdrawMinor: toMinor(100), voiceFee: false, chessEnabled: true } as SiteConfig,
   categoryImages: {} as CategoryImageConfig,
   gameModeImages: {} as GameModeImageConfig,
@@ -280,7 +297,7 @@ export const useStore = create<DemoState>()(
     (set, get) => ({
       ...initial,
 
-      // login/signup â†’ also upsert into adminUsers so the Admin panel shows
+      // login/signup → also upsert into adminUsers so the Admin panel shows
       // every new sign-up instantly (real-time user list)
       login: (username) => set((s) => {
         const name = (username || s.username || '').trim() || 'Player'
@@ -312,7 +329,7 @@ export const useStore = create<DemoState>()(
         set((s) => ({ tickets: [ticket, ...s.tickets] }))
         // simulated support auto-reply
         setTimeout(() => set((s) => ({
-          tickets: s.tickets.map((tk) => tk.id === id ? { ...tk, status: 'answered', msgs: [...tk.msgs, { me: false, text: 'à¦§à¦¨à§à¦¯à¦¬à¦¾à¦¦! à¦†à¦®à¦¾à¦¦à§‡à¦° à¦¸à¦¾à¦ªà§‹à¦°à§à¦Ÿ à¦Ÿà¦¿à¦® à¦¶à§€à¦˜à§à¦°à¦‡ à¦¦à§‡à¦–à¦›à§‡à¥¤ / Thanks! Our support team is on it and will reply shortly.', ts: Date.now() }] } : tk),
+          tickets: s.tickets.map((tk) => tk.id === id ? { ...tk, status: 'answered', msgs: [...tk.msgs, { me: false, text: 'ধন্যবাদ! আমাদের সাপোর্ট টিম শীঘ্রই দেখছে। / Thanks! Our support team is on it and will reply shortly.', ts: Date.now() }] } : tk),
         })), 1500)
         return id
       },
@@ -393,6 +410,25 @@ export const useStore = create<DemoState>()(
       toggleBanner: (id) => set((s) => ({ banners: s.banners.map((b) => b.id === id ? { ...b, active: !b.active } : b) })),
       setBonusConfig: (patch) => set((s) => ({ bonusConfig: { ...s.bonusConfig, ...patch } })),
       setPaymentConfig: (patch) => set((s) => ({ paymentConfig: { ...s.paymentConfig, ...patch } })),
+
+      // Ask the server which gateway is genuinely live. Any failure resolves to
+      // manual: an unreachable RPC must never be the reason a player's deposit
+      // is sent somewhere that cannot take money.
+      refreshLiveGateway: async () => {
+        if (!liveMode || !supabase) return
+        try {
+          const { data } = await supabase.rpc('active_gateway')
+          const row = (data ?? {}) as Partial<LiveGateway>
+          set(() => ({ liveGateway: {
+            provider: row.provider ?? 'manual',
+            mode: row.mode === 'auto' ? 'auto' : 'manual',
+            merchant_id: row.merchant_id ?? '',
+            reason: row.reason ?? '',
+          } }))
+        } catch {
+          set(() => ({ liveGateway: { provider: 'manual', mode: 'manual', merchant_id: '', reason: 'could not reach the server' } }))
+        }
+      },
       setSiteConfig: (patch) => set((s) => ({ siteConfig: { ...s.siteConfig, ...patch } })),
       setAdminSettings: (patch) => set((s) => ({ adminSettings: { ...s.adminSettings, ...patch } })),
       // changeAdminPin is gone on purpose: the admin password now lives in
@@ -436,9 +472,9 @@ export const useStore = create<DemoState>()(
           const user = get().username
           set((s) => ({
             deposits: [{ id, user, amountMinor: amt, method, ref: txnRef, status: 'pending', ts: Date.now() }, ...s.deposits],
-            ledger: [{ id, type: 'deposit', amountMinor: amt, balanceAfter: get().availableMinor, status: 'pending', ts: Date.now(), note: `Deposit request Â· ${method}` }, ...s.ledger],
+            ledger: [{ id, type: 'deposit', amountMinor: amt, balanceAfter: get().availableMinor, status: 'pending', ts: Date.now(), note: `Deposit request · ${method}` }, ...s.ledger],
           }))
-          get().logAdminActivity('deposit_request', 'payments', `${user} Â· ${method} Â· ${taka}`)
+          get().logAdminActivity('deposit_request', 'payments', `${user} · ${method} · ${taka}`)
           return true
         }
         try {
@@ -531,7 +567,7 @@ export const useStore = create<DemoState>()(
           const user = get().username
           set((s) => ({
             availableMinor: balanceAfter,
-            ledger: [{ id, type: 'withdrawal', amountMinor: -amt, balanceAfter, status: 'pending', ts: Date.now(), note: `Withdrawal Â· ${method}` }, ...s.ledger],
+            ledger: [{ id, type: 'withdrawal', amountMinor: -amt, balanceAfter, status: 'pending', ts: Date.now(), note: `Withdrawal · ${method}` }, ...s.ledger],
             withdrawals: [{ id, user, amountMinor: amt, method, account: acct, status: 'pending', ts: Date.now() }, ...s.withdrawals],
           }))
           return true
@@ -570,7 +606,7 @@ export const useStore = create<DemoState>()(
               availableMinor: available,
               withdrawals: s.withdrawals.map((x) => x.id === id ? { ...x, status } : x),
               ledger: [
-                { id: txn(), type: 'refund_credit', amountMinor: w.amountMinor, balanceAfter: available, status: 'refunded' as const, ts: Date.now(), note: `Refund Â· withdrawal ${id.slice(-4)}` },
+                { id: txn(), type: 'refund_credit', amountMinor: w.amountMinor, balanceAfter: available, status: 'refunded' as const, ts: Date.now(), note: `Refund · withdrawal ${id.slice(-4)}` },
                 ...s.ledger.map((l) => l.id === id ? { ...l, status: 'failed' as const } : l),
               ],
             }))
@@ -628,16 +664,16 @@ export const useStore = create<DemoState>()(
           const entries: Ledger[] = []
           if (rec.outcome === 'win') {
             available += rec.prizeMinor
-            entries.push({ id: txn(), type: 'prize_credit', amountMinor: rec.prizeMinor, balanceAfter: available, status: 'completed', ts: Date.now(), note: `Prize Â· ${rec.mode}` })
+            entries.push({ id: txn(), type: 'prize_credit', amountMinor: rec.prizeMinor, balanceAfter: available, status: 'completed', ts: Date.now(), note: `Prize · ${rec.mode}` })
           } else if (rec.outcome === 'cancelled' || rec.outcome === 'draw') {
             available += rec.entryMinor // refund entry
-            entries.push({ id: txn(), type: 'refund_credit', amountMinor: rec.entryMinor, balanceAfter: available, status: 'refunded', ts: Date.now(), note: `Refund Â· ${rec.mode}` })
+            entries.push({ id: txn(), type: 'refund_credit', amountMinor: rec.entryMinor, balanceAfter: available, status: 'refunded', ts: Date.now(), note: `Refund · ${rec.mode}` })
           }
           const match: MatchRecord = { ...rec, id: uid(), ts: Date.now() }
           const notif: Notif = {
             id: uid(), type: 'result',
-            titleBn: rec.outcome === 'win' ? 'à¦…à¦­à¦¿à¦¨à¦¨à§à¦¦à¦¨! à¦†à¦ªà¦¨à¦¿ à¦œà¦¿à¦¤à§‡à¦›à§‡à¦¨' : rec.outcome === 'draw' ? 'à¦®à§à¦¯à¦¾à¦š à¦¡à§à¦° à¦¹à¦¯à¦¼à§‡à¦›à§‡' : rec.outcome === 'cancelled' ? 'à¦®à§à¦¯à¦¾à¦š à¦¬à¦¾à¦¤à¦¿à¦² â€” à¦«à§‡à¦°à¦¤ à¦¦à§‡à¦“à¦¯à¦¼à¦¾ à¦¹à¦¯à¦¼à§‡à¦›à§‡' : 'à¦®à§à¦¯à¦¾à¦š à¦¶à§‡à¦·',
-            titleEn: rec.outcome === 'win' ? 'Congrats! You won' : rec.outcome === 'draw' ? 'Match drawn' : rec.outcome === 'cancelled' ? 'Match cancelled â€” refunded' : 'Match finished',
+            titleBn: rec.outcome === 'win' ? 'অভিনন্দন! আপনি জিতেছেন' : rec.outcome === 'draw' ? 'ম্যাচ ড্র হয়েছে' : rec.outcome === 'cancelled' ? 'ম্যাচ বাতিল — ফেরত দেওয়া হয়েছে' : 'ম্যাচ শেষ',
+            titleEn: rec.outcome === 'win' ? 'Congrats! You won' : rec.outcome === 'draw' ? 'Match drawn' : rec.outcome === 'cancelled' ? 'Match cancelled — refunded' : 'Match finished',
             ts: Date.now(), read: false,
           }
           return {

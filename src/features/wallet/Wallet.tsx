@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { Wallet as WalletIcon, Plus, Landmark, ReceiptText, ShieldCheck, Copy, X, Check } from 'lucide-react'
 import { useT } from '../../i18n'
 import { useStore, type TxnStatus } from '../../lib/store'
+import { hasSupabase as liveMode } from '../../lib/supabase'
 import { fmt } from '../../lib/money'
 import { useToast, EmptyState, ListSkeleton, useReady, Modal } from '../../ui/components'
 
@@ -44,6 +45,23 @@ export default function Wallet() {
   const minWithdrawMinor = useStore((s) => s.siteConfig.minWithdrawMinor)
   const payNumber = (merchantId && method === 'bKash' ? merchantId : '') || PAY_NUMBERS[method] || PAY_NUMBERS.bKash
   const valid = Number(amt) > 0 && (tab !== 'withdraw' || account.trim().length > 0)
+  const liveGw = useStore((s) => s.liveGateway)
+  const refreshLiveGateway = useStore((s) => s.refreshLiveGateway)
+  const [refreshing, setRefreshing] = useState(false)
+  // Ask the server once when the wallet opens which gateway is actually live.
+  // Until it answers, liveGw.mode is 'manual', so the manual path is what renders
+  // - the UI can never claim a gateway that the server has not confirmed.
+  useEffect(() => {
+    if (!liveMode) return
+    void refreshLiveGateway()
+  }, [liveMode, refreshLiveGateway])
+
+  const recheck = async () => {
+    setRefreshing(true)
+    await refreshLiveGateway()
+    setRefreshing(false)
+  }
+
   const [checkout, setCheckout] = useState(false)
   const [payStep, setPayStep] = useState<'pay' | 'done'>('pay')
   const mStyle = METHOD_STYLE[method] || METHOD_STYLE.bKash
@@ -120,7 +138,37 @@ export default function Wallet() {
           </div>
           <div>
             <label className="label">{t('wallet.method')}</label>
-            <select className="input" value={method} onChange={(e) => setMethod(e.target.value)}><option>bKash</option><option>Nagad</option><option>Rocket</option></select>
+            <select className="input" value={method} onChange={(e) => setMethod(e.target.value)} disabled={liveGw.mode === 'auto'}><option>bKash</option><option>Nagad</option><option>Rocket</option></select>
+          </div>
+          {/*
+            Which path a deposit takes is the server's answer, not this app's
+            optimism. Manual means: send the transfer, quote the TxID below, an
+            admin approves it. Automatic means a gateway is live and confirmed -
+            and if that ever turns out to be wrong, Re-check is one tap away and
+            falls back to manual rather than sending money nowhere.
+          */}
+          <div className="rounded-xl border border-line bg-surface-2/50 px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-[12px] font-bold">
+                {liveGw.mode === 'auto' ? `Pay with ${liveGw.provider}` : 'Pay by transfer'}
+              </span>
+              <span className="chip text-[10px] font-bold"
+                style={liveGw.mode === 'auto'
+                  ? { background: 'rgba(16,185,129,.16)', color: 'var(--emerald2)' }
+                  : { background: 'rgba(234,179,8,.16)', color: 'var(--gold)' }}>
+                {liveGw.mode === 'auto' ? 'Automatic' : 'Manual approval'}
+              </span>
+            </div>
+            <p className="mt-1 text-[11px] leading-snug text-muted">
+              {liveGw.mode === 'auto'
+                ? 'You will be sent to the gateway to pay. Your balance updates as soon as it confirms.'
+                : 'Send the money to the number above, then paste the transaction ID so an admin can verify it.'}
+            </p>
+            {liveMode && (
+              <button onClick={() => void recheck()} className="btn-ghost mt-1.5 w-full py-1 text-[11px]" disabled={refreshing}>
+                {refreshing ? 'Checking…' : 'Re-check gateway'}
+              </button>
+            )}
           </div>
           {tab === 'withdraw' && (
             <div>

@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { ChevronLeft, Wrench, Megaphone, Send, Users, Search, Ban, CheckCircle2, Trash2, Plus, Minus, Image, Gift, CreditCard, LifeBuoy, SlidersHorizontal, Gamepad2, LayoutDashboard, ImageIcon, Upload, X, Shield, Activity, Key, UserPlus, UserCheck, LogOut, Bell, FileText, Banknote } from 'lucide-react'
 import { MODES } from '../../lib/catalog'
 import { fmt, toMinor } from '../../lib/money'
+import { GATEWAYS, isUsable } from '../../lib/payments/providers'
 import { useStore, type AdminUser, type CategoryImageConfig, type AdminRole, type AdminActivity, type AdminSettings, fileToBase64, validateImageFile } from '../../lib/store'
 import { supabase, hasSupabase } from '../../lib/supabase'
 import { useToast, Sheet } from '../../ui/components'
@@ -74,6 +75,8 @@ export default function Admin() {
   const tickets = useStore((s) => s.tickets)
   const bonus = useStore((s) => s.bonusConfig)
   const pay = useStore((s) => s.paymentConfig)
+  const liveGw = useStore((s) => s.liveGateway)
+  const refreshLiveGateway = useStore((s) => s.refreshLiveGateway)
   const site = useStore((s) => s.siteConfig)
   const categoryImages = useStore((s) => s.categoryImages)
   const gameModeImages = useStore((s) => s.gameModeImages)
@@ -414,54 +417,95 @@ export default function Admin() {
 
       {/* ---- Payments ---- */}
       {tab === 'Payments' && (
-        <div className="card p-4 space-y-3">
-          <div className="flex items-center gap-2 text-sm font-bold">
-            <CreditCard className="h-4 w-4 text-primary-2" strokeWidth={2.2} />Payment method
-          </div>
-
-          {/*
-            Manual, and only manual. This used to be a "Payment gateway" card with
-            a Provider dropdown (Stripe, SSLCOMMERZ), a Merchant ID, an API key and
-            an "Enable live payments" toggle - which was worse than useless: none of
-            it was ever read by any payment code path. `enabled` and `apiKey` had
-            zero consumers, so flipping the switch changed nothing while looking
-            like the app was taking live money, and the API key sat in
-            localStorage in plaintext. Meanwhile the flow was, and still is, manual
-            end to end: a deposit or withdrawal row is created 'pending' and only
-            the staff-only admin-wallet edge function can move it off pending.
-
-            So there is no switch to get wrong. The mode is stated, the merchant
-            numbers players are told to send to are editable here (that IS read, by
-            Wallet.tsx), and the approval work stays where it belongs - the
-            Withdrawals tab.
-          */}
-          <div className="flex items-center justify-between rounded-xl border border-line bg-surface-2/60 px-3 py-2.5">
-            <div>
-              <div className="text-sm font-bold">Mode</div>
-              <div className="text-[11px] text-muted">Player sends the transfer, you verify it and approve</div>
+        <div className="space-y-3">
+          <div className="card p-4 space-y-3">
+            <div className="flex items-center gap-2 text-sm font-bold">
+              <CreditCard className="h-4 w-4 text-primary-2" strokeWidth={2.2} />
+              Live gateway
             </div>
-            <span className="chip text-[11px] font-bold" style={{ background: 'rgba(16,185,129,.16)', color: 'var(--emerald2)' }}>
-              Manual
-            </span>
+
+            {/*
+              Manual is the default and the floor, not an oversight. A gateway can
+              only be switched on after it has a merchant account, credentials set
+              as Supabase function secrets, and a signed checkout + verified
+              webhook written against that provider's docs. The list below is the
+              full set of candidates that can settle BDT; a row stays Manual until
+              all of that is true, so a deposit is never routed to a gateway that
+              cannot take the money.
+
+              Razorpay is shown greyed out on purpose: it settles in INR only and
+              will not accept a taka transaction, so it is listed to stop it being
+              added back as if it were an option.
+            */}
+            <div className="rounded-xl border border-line bg-surface-2/60 px-3 py-2.5">
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <div className="text-sm font-bold">Currently: {liveGw.provider === 'manual' ? 'Manual' : liveGw.provider}</div>
+                  <div className="text-[11px] text-muted">
+                    {liveGw.mode === 'auto'
+                      ? 'Deposits go to the gateway and are credited by its webhook.'
+                      : liveGw.reason || 'Player sends the transfer, an admin approves it.'}
+                  </div>
+                </div>
+                <span className="chip shrink-0 text-[11px] font-bold"
+                  style={liveGw.mode === 'auto'
+                    ? { background: 'rgba(16,185,129,.16)', color: 'var(--emerald2)' }
+                    : { background: 'rgba(234,179,8,.16)', color: 'var(--gold)' }}>
+                  {liveGw.mode === 'auto' ? 'Automatic' : 'Manual'}
+                </span>
+              </div>
+              <button onClick={() => void refreshLiveGateway()} className="btn-ghost mt-2 w-full py-1.5 text-xs">Re-check</button>
+            </div>
+
+            <div>
+              <label className="label">Gateway candidates (BDT)</label>
+              <div className="space-y-1.5">
+                {GATEWAYS.map((g) => {
+                  const usable = isUsable(g)
+                  return (
+                    <div key={g.id} className="rounded-xl border border-line px-3 py-2"
+                      style={{ opacity: usable ? 1 : 0.55 }}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-sm font-bold">{g.label}</span>
+                        {g.id === liveGw.provider && liveGw.mode === 'auto' && (
+                          <span className="chip text-[10px] font-bold" style={{ background: 'rgba(16,185,129,.16)', color: 'var(--emerald2)' }}>LIVE</span>
+                        )}
+                        {!usable && <span className="chip text-[10px]">not for BDT</span>}
+                      </div>
+                      {g.note && <p className="mt-1 text-[11px] leading-snug text-muted">{g.note}</p>}
+                      {usable && g.secrets.length > 0 && (
+                        <p className="mt-1 text-[11px] leading-snug text-muted">
+                          Needs these Supabase function secrets: <span className="tnum">{g.secrets.join(', ')}</span>
+                        </p>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            <p className="text-[11px] leading-snug text-muted">
+              ⚠️ Adding a row here does not enable it. To go automatic: get the merchant account,
+              set the secrets above with <span className="tnum">supabase secrets set</span>, finish
+              <span className="tnum"> buildSession()</span> in <span className="tnum">payment-checkout</span> and
+              <span className="tnum"> verify()</span> in <span className="tnum">payment-webhook</span>, then flip
+              mode to Automatic in the database. Until every step is done, deposits stay manual.
+            </p>
           </div>
 
-          <div>
-            <label className="label">Provider shown to players</label>
-            <select className="input" value={pay.provider} onChange={(e) => setPaymentConfig({ provider: e.target.value })}>
-              {['bKash', 'Nagad', 'Rocket'].map((p) => <option key={p}>{p}</option>)}
-            </select>
+          <div className="card p-4 space-y-3">
+            <div className="text-sm font-bold">Manual payment numbers</div>
+            <div><label className="label">Provider shown to players</label>
+              <select className="input" value={pay.provider} onChange={(e) => setPaymentConfig({ provider: e.target.value })}>
+                {['bKash', 'Nagad', 'Rocket'].map((p) => <option key={p}>{p}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="label">{pay.provider} merchant number</label>
+              <input className="input" value={pay.merchantId} onChange={(e) => setPaymentConfig({ merchantId: e.target.value })} placeholder="e.g. 01712-345678" />
+              <p className="mt-1 text-[11px] text-muted">The number players are told to send money to, used on the manual path. Leave blank for the built-in placeholder.</p>
+            </div>
           </div>
-          <div>
-            <label className="label">{pay.provider} merchant number</label>
-            <input className="input" value={pay.merchantId} onChange={(e) => setPaymentConfig({ merchantId: e.target.value })} placeholder="e.g. 01712-345678" />
-            <p className="mt-1 text-[11px] text-muted">This is the number players are told to send money to. Leave blank to use the built-in placeholder.</p>
-          </div>
-
-          <p className="text-[11px] text-muted">
-            ⚠️ There is no automatic gateway here. Nothing in this app talks to bKash, Nagad or any
-            provider API - approving a request is a human confirming the money arrived. Approve and
-            reject in the <strong>Withdrawals</strong> tab.
-          </p>
         </div>
       )}
 
