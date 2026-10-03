@@ -1,5 +1,12 @@
 import { PATH, HOME_COL, CENTER, QUAD_AREA, BASE_SLOTS, cellFor } from '../../engine/ludoBoard'
 import { SAFE_ABS, START_OFFSET, COLORS, FINISH, type LudoState, type PlayerId } from '../../engine/ludo'
+import boardArt from '../../assets/ludoking/ludofinalboard2.png'
+import redPiece from '../../assets/ludoking/redpiece.png'
+import greenPiece from '../../assets/ludoking/greenpiece.png'
+import yellowPiece from '../../assets/ludoking/yellowpiece.png'
+import bluePiece from '../../assets/ludoking/bluepiece.png'
+
+const PIECE_ART: Record<PlayerId, string> = { 0: redPiece, 1: greenPiece, 2: yellowPiece, 3: bluePiece }
 
 const N = 15
 const pct = (v: number) => `${(v * 100) / N}%`
@@ -28,25 +35,23 @@ function startCellOf(onPath: number): PlayerId | -1 {
   return -1
 }
 
-function PinToken({ color, dim = false }: { color: string; dim?: boolean }) {
+/**
+ * The piece art from the supplied Ludo King assets, keyed by player.
+ *
+ * These are PNGs with alpha and a portrait aspect (~80x106), so they drop
+ * straight into the token box the board already reserves. The previous inline
+ * SVG looked close but was not the real thing, and a token is the thing the
+ * player looks at for the entire match.
+ */
+function PinToken({ p, dim = false }: { p: PlayerId; dim?: boolean }) {
   return (
-    <svg viewBox="0 0 24 34" className="h-full w-full" style={{ filter: dim ? 'none' : 'drop-shadow(0 3px 3px rgba(0,0,0,.55))' }}>
-      <ellipse cx="12" cy="32.6" rx="8.6" ry="1.6" fill="rgba(0,0,0,.38)" />
-      {/* body - vertical gradient is what stops it reading as a flat sticker */}
-      <defs>
-        <linearGradient id={`pin-${color.slice(1)}`} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={lighten(color, 0.5)} />
-          <stop offset="45%" stopColor={color} />
-          <stop offset="100%" stopColor={darken(color, 0.3)} />
-        </linearGradient>
-      </defs>
-      <path d="M8.9 12.2 C8.3 13.8 7.8 15.8 7.5 17.8 L5.2 29.2 H18.8 L16.5 17.8 C16.2 15.8 15.7 13.8 15.1 12.2 C14.4 13.4 13.3 14.1 12 14.1 C10.7 14.1 9.6 13.4 8.9 12.2 Z" fill={`url(#pin-${color.slice(1)})`} stroke="#fff" strokeWidth="1.7" strokeLinejoin="round" />
-      <rect x="4.6" y="28.6" width="14.8" height="3.4" rx="1.7" fill={`url(#pin-${color.slice(1)})`} stroke="#fff" strokeWidth="1.6" />
-      <circle cx="12" cy="7.5" r="5.3" fill={`url(#pin-${color.slice(1)})`} stroke="#fff" strokeWidth="1.7" />
-      {/* specular highlight + rim light: the 3D read */}
-      <ellipse cx="9.8" cy="5.6" rx="2.5" ry="1.7" fill="rgba(255,255,255,.72)" transform="rotate(-28 9.8 5.6)" />
-      <path d="M8.6 18.4 C8.3 19.6 8.1 20.6 8 21.6" stroke="rgba(255,255,255,.6)" strokeWidth="1.3" strokeLinecap="round" fill="none" />
-    </svg>
+    <img
+      src={PIECE_ART[p]}
+      alt=""
+      draggable={false}
+      className="h-full w-full select-none"
+      style={{ filter: dim ? 'none' : 'drop-shadow(0 3px 3px rgba(0,0,0,.55))' }}
+    />
   )
 }
 
@@ -121,6 +126,32 @@ export function LudoBoard({ state, legal, onToken }: { state: LudoState; legal: 
           boxShadow: 'inset 0 0 0 2px rgba(255,255,255,.9), inset 0 3px 14px rgba(120,85,20,.28)',
         }}
       >
+        {/*
+          The supplied board art, as the board surface beneath the playing grid.
+
+          Rotated 90 degrees on purpose. Sampling the PNG's 15x15 cell centres
+          gives yards of green / yellow / red / blue going top-left, top-right,
+          bottom-left, bottom-right, while this engine's players are red /
+          green / yellow / blue from the top-left clockwise. The artwork is the
+          same board turned a quarter turn, so without this the decorative
+          surface would disagree with every piece on it.
+
+          It is a background layer, not a replacement for the grid: the track
+          tiles and yards below stay code-drawn and opaque. That is deliberate.
+          The art is a single flat bitmap and the engine needs exact grid
+          coordinates for legal moves, so overlaying it and trusting it to line
+          up would put tokens on the wrong squares the moment it was off by a
+          pixel - and there is no way to eyeball that here.
+        */}
+        <img
+          src={boardArt}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          className="pointer-events-none absolute inset-0 h-full w-full object-cover opacity-70"
+          style={{ transform: 'rotate(90deg) scale(1.42)', transformOrigin: 'center' }}
+        />
+
         {/* four corner yards */}
         {([0, 1, 2, 3] as PlayerId[]).map((p) => {
           const [r0, c0, r1, c1] = QUAD_AREA[p]
@@ -229,7 +260,7 @@ export function LudoBoard({ state, legal, onToken }: { state: LudoState; legal: 
                   />
                 )}
                 <span className={`block h-full w-full ${isLegal ? 'animate-bounce-fast' : ''}`}>
-                  <PinToken color={COLORS[p]} />
+                  <PinToken p={p} />
                 </span>
               </button>
             )

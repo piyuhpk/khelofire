@@ -6,6 +6,12 @@ import { useStore, type Outcome } from '../../lib/store'
 import { GameHeader, VoiceButton, ExitModal, ResultModal } from '../game/GameShell'
 import { MatchChat } from '../game/MatchChat'
 import { LudoBoard } from './LudoBoard'
+import dice1 from '../../assets/ludoking/dice1.png'
+import dice2 from '../../assets/ludoking/dice2.png'
+import dice3 from '../../assets/ludoking/dice3.png'
+import dice4 from '../../assets/ludoking/dice4.png'
+import dice5 from '../../assets/ludoking/dice5.png'
+import dice6 from '../../assets/ludoking/dice6.png'
 import { initLudo, legalTokens, applyMove, rollDice, botChoose, nextActive, COLORS, COLOR_NAME, FINISH, type LudoState, type PlayerId } from '../../engine/ludo'
 
 const BOT_NAMES = ['—', 'Rahim', 'Sakib', 'Tanvir']
@@ -13,17 +19,16 @@ const BOT_NAMES = ['—', 'Rahim', 'Sakib', 'Tanvir']
 /** seconds allowed to roll, and again to pick the token once rolled */
 const TURN_SECONDS = 20
 
-const DICE_PIPS: Record<number, [number, number][]> = {
-  1: [[1, 1]], 2: [[0, 0], [2, 2]], 3: [[0, 0], [1, 1], [2, 2]],
-  4: [[0, 0], [0, 2], [2, 0], [2, 2]], 5: [[0, 0], [0, 2], [1, 1], [2, 0], [2, 2]],
-  6: [[0, 0], [0, 2], [1, 0], [1, 2], [2, 0], [2, 2]],
+const DICE_ART: Record<number, string> = {
+  1: dice1, 2: dice2, 3: dice3, 4: dice4, 5: dice5, 6: dice6,
 }
 
 /**
- * Glossy 3D die, Ludo King style: an ivory cube face sitting in perspective,
- * dark recessed pips, and a specular sweep across the top-left. The tilt and
- * the bevel are what make it read as a physical object rather than a flat
- * rounded square with dots on it.
+ * The real die faces from the supplied Ludo King assets.
+ *
+ * One image per value, so there is nothing to render wrong: the pip layout is
+ * the artwork's. The earlier hand-drawn face was a red rounded square, which is
+ * neither the right colour nor the right shape for the genre.
  */
 function LudoDiceFace({ value }: { value: number | null }) {
   if (value == null) {
@@ -42,41 +47,13 @@ function LudoDiceFace({ value }: { value: number | null }) {
   }
   return (
     <span
-      className="relative grid h-14 w-14 grid-cols-3 grid-rows-3 gap-[2px] rounded-[14px] p-[9px]"
+      className="relative grid h-14 w-14 place-items-center"
       style={{
-        background: 'linear-gradient(155deg,#FFFFFF 0%,#FBF4E4 45%,#E4D0AA 100%)',
-        border: '2px solid rgba(255,255,255,.95)',
-        boxShadow: 'inset 0 -4px 8px rgba(120,90,30,.32), inset 0 3px 6px rgba(255,255,255,.98), 0 5px 12px rgba(0,0,0,.5)',
-        transform: 'perspective(220px) rotateX(16deg) rotateY(-14deg)',
+        transform: 'perspective(220px) rotateX(14deg) rotateY(-12deg)',
+        filter: 'drop-shadow(0 5px 6px rgba(0,0,0,.5))',
       }}
     >
-      {Array.from({ length: 9 }).map((_, k) => {
-        const on = DICE_PIPS[value].some(([r, c]) => r * 3 + c === k)
-        return (
-          <span
-            key={k}
-            className="place-self-center rounded-full"
-            style={{
-              height: on ? 11 : 0,
-              width: on ? 11 : 0,
-              // recessed: dark pip with a light lower rim, the inverse of the pips
-              // being drawn on top
-              background: 'radial-gradient(circle at 38% 32%, #4A4A55 0%, #1B1B24 60%, #0C0C12 100%)',
-              boxShadow: 'inset 0 1px 2px rgba(0,0,0,.9), 0 1px 0 rgba(255,255,255,.75)',
-            }}
-          />
-        )
-      })}
-      {/* specular sweep */}
-      <span
-        className="pointer-events-none absolute inset-0 overflow-hidden"
-        style={{ borderRadius: '14px' }}
-      >
-        <span
-          className="absolute -left-1/3 -top-1/2 h-full w-2/3"
-          style={{ background: 'linear-gradient(105deg,rgba(255,255,255,0) 0%,rgba(255,255,255,.55) 50%,rgba(255,255,255,0) 100%)', transform: 'rotate(8deg)' }}
-        />
-      </span>
+      <img src={DICE_ART[value]} alt={`dice ${value}`} draggable={false} className="h-full w-full object-contain" />
     </span>
   )
 }

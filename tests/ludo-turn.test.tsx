@@ -146,12 +146,17 @@ describe('Ludo turn machinery', () => {
       // rather than by the bug.
       random.mockRestore()
 
-      // deliberately never click a token
-      await tick(25_000)
-
-      // the turn must have moved on and handed the dice back
-      await tick(1000)
-      expect((screen.getByLabelText('roll dice') as HTMLButtonElement).disabled).toBe(false)
+      // Deliberately never click a token, then wait for the hand-back rather than
+      // guessing how long it takes. Once the die is fair again the bot's turn
+      // length depends on a real roll, so any fixed tick is a race that fails
+      // whenever the bot happens to still be mid-turn when the clock stops - a
+      // failure that says nothing about the countdown actually working.
+      let handedBack = false
+      for (let i = 0; i < 40 && !handedBack; i++) {
+        await tick(1000)
+        handedBack = (screen.getByLabelText('roll dice') as HTMLButtonElement).disabled === false
+      }
+      expect(handedBack).toBe(true)
     } finally {
       random.mockRestore()
     }
