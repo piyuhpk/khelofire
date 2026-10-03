@@ -145,20 +145,27 @@ export function LudoBoard({ state, legal, onToken }: { state: LudoState; legal: 
             // the rest of the pile was invisible.
             const scale = n > 1 ? 1 / (1 + (n - 1) * 0.22) : 1
             const spread = (si - (n - 1) / 2) * (n > 2 ? 0.46 : 0.42)
-            // redpiece.png is 80x106 with a 70px-wide head - 0.875 of the image
-            // width - so 7.8% of the board puts that head at 1.02 cells across,
-            // just over the 1.0-cell circle it has to sit in. At the old 5.9% the
-            // head was 0.77 cells and only ever filled the middle of the circle,
-            // which is why every waiting piece looked like a peg in a ring.
-            const w = 7.8 * scale
-            const h = 10.3 * scale
-            // The head is not at the middle of the PNG: its centre is y=40.5 of
-            // 106, so 0.382 down. In the yard BASE_SLOTS points at the centre of
-            // a circle and only -38.2% puts the head on that centre; -50% drops
-            // it 0.18 cells high and leaves the bottom of the circle showing
-            // through. On the track there is no circle to fill, and -50% is what
-            // keeps a pin on row 14 from being cut off by the board edge.
-            const ty = pos === 0 ? '-38.2%' : '-50%'
+            // Two sizes, because the two places a token sits have different boxes.
+            // In the yard the white circle is ~0.98 cells across and the pin's
+            // head has to fill it edge to edge: 7.8% puts the 74px head at 1.08
+            // cells, and -38.2% lands that head dead on the circle centre
+            // (measured off the PNGs: the pin's head centre is 0.382 of its
+            // height, and the art's circle centres are BASE_SLOTS+0.5 to six
+            // hundredths of a cell). On the track there is no circle, just the
+            // 1-cell box, and that same tall pin sticks out of it top and
+            // bottom - so there it renders at 5.9/7.4, whose visible height is
+            // 1.03 cells: fully inside the box, centred in it.
+            const inYard = pos === 0
+            const w = (inYard ? 7.8 : 5.9) * scale
+            const h = (inYard ? 10.3 : 7.4) * scale
+            // The head is not at the middle of the PNG: its centre is 0.382
+            // down. In the yard BASE_SLOTS points at the centre of a circle
+            // and only -38.2% puts the head on that centre; -50% drops it
+            // 0.18 cells high and leaves the bottom of the circle showing
+            // through. On the track the pin's own middle sits on the cell
+            // middle instead, which is also what keeps a pin on row 14 from
+            // being cut off by the board edge.
+            const ty = inYard ? '-38.2%' : '-50%'
             return (
               <button
                 key={`${p}-${i}`}

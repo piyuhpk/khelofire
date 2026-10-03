@@ -194,20 +194,34 @@ export default function LudoGame() {
     return () => clearInterval(id)
   }, [yourTurn, st.rolled]) // eslint-disable-line
 
-  // Bot turn.
+  // Bot turn, in two phases so the opponent's roll can actually be followed.
   //
-  // This must commit in ONE state update. It used to be split across two
-  // timeouts: the first one set dice/rolled, which changed the deps below, so
-  // React ran this effect's cleanup (setting alive = false) and then the
-  // second timeout saw !alive and returned. The bot showed its die and never
-  // moved, leaving state { rolled: true, turn: bot } that nothing could advance
-  // - the board froze forever after the player's move. One timer, one update.
+  // It used to commit dice+move in one silent update, so the opponent's token
+  // just teleported with no spin at all - no tumble on the dice, and no way to
+  // see where the piece went. Now the shared dice tumbles first, the rolled
+  // value lands and sits for a beat, and only then does the token move.
+  //
+  // This still commits in ONE state update per phase. It used to be split
+  // across two timeouts sharing one alive flag: the first one set dice/rolled,
+  // which changed the deps below, so React ran this effect's cleanup (setting
+  // alive = false) and then the second timeout saw !alive and returned. The
+  // bot showed its die and never moved, leaving state { rolled: true, turn:
+  // bot } that nothing could advance - the board froze forever after the
+  // player's move. The phase-2 timer therefore lives in botMoveTimer (a ref
+  // the cleanup deliberately does not touch) and is guarded by rollToken
+  // instead: the phase-1 commit re-runs this effect, the guard sees rolled
+  // and returns early without bumping the token, so phase 2 still fires.
   useEffect(() => {
     const p = st.turn
     if (result || st.winner !== null || p === 0 || st.rolled || st.dice !== null) return
-    let alive = true
+    const mine = ++rollToken.current
+    // phase 0: tumble the shared dice while the bot "thinks", exactly like a
+    // player roll - the frame interval above runs off `rolling`
+    setRolling(true)
+    setSpinFrame(1)
     const id = setTimeout(() => {
-      if (!alive) return
+      setRolling(false)
+      if (rollToken.current !== mine) return
       const d = rollDice()
       if (d === 6 && st.sixes >= 2) {
         setBotDice(d)
@@ -221,18 +235,42 @@ export default function LudoGame() {
         setSt((s) => ({ ...s, dice: null, rolled: false, sixes: 0, turn: nextActive(s, p) }))
         return
       }
-      setSt(applyMove(cur, p, choice, d).state)
+      const moved = applyMove(cur, p, choice, d).state
+      // phase 1: land the rolled value on the dice, so the eye registers what
+      // was rolled...
+      setSt({ ...cur })
+      // ...phase 2: move the token a beat later, so the move can be followed
+      // instead of landing in the same frame as the dice.
+      botMoveTimer.current = window.setTimeout(() => {
+        botMoveTimer.current = null
+        if (rollToken.current !== mine) return
+        setSt(moved)
+      }, 650)
     }, 900)
-    return () => { alive = false; clearTimeout(id) }
+    return () => { clearTimeout(id); setRolling(false) }
   }, [st, result]) // eslint-disable-line
 
   const pendingPass = useRef<number | null>(null)
+  // phase 2 of a bot roll (the token move, a beat after its dice lands). This
+  // lives in a ref on purpose: the phase-1 commit re-runs the turn effect
+  // below, and if that cleanup cancelled this timer the bot would show its die
+  // and freeze - the old two-timeout bug. It is cleared when the match ends
+  // and on unmount, and nothing can interleave in between: taps and the
+  // countdown are both gated on yourTurn.
+  const botMoveTimer = useRef<number | null>(null)
+  useEffect(() => () => { if (botMoveTimer.current !== null) clearTimeout(botMoveTimer.current) }, [])
   // the "no legal move, pass the turn" timer must not outlive the match,
   // otherwise it flips the turn after resign or after the result modal
   useEffect(() => {
-    if (result && pendingPass.current !== null) {
-      clearTimeout(pendingPass.current)
-      pendingPass.current = null
+    if (result) {
+      if (pendingPass.current !== null) {
+        clearTimeout(pendingPass.current)
+        pendingPass.current = null
+      }
+      if (botMoveTimer.current !== null) {
+        clearTimeout(botMoveTimer.current)
+        botMoveTimer.current = null
+      }
     }
   }, [result])
   useEffect(() => () => { if (pendingPass.current !== null) clearTimeout(pendingPass.current) }, [])

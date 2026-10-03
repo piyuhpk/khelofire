@@ -63,7 +63,11 @@ async function playTurn(): Promise<boolean> {
 }
 
 /** let both sides play until the match resolves */
-async function playToResult(modeId: string, budgetMs = 600_000) {
+async function playToResult(modeId: string, budgetMs = 1_200_000) {
+  // A bot turn needs ~2 loop iterations now: the turn effect spins the dice
+  // for 900ms, lands the value, and only then moves the token 650ms later, so
+  // the opponent's move can be followed. Ticking 1000ms per loop means the
+  // move lands on the second tick. The old single-commit bot fitted in one.
   mount(modeId)
   let spent = 0
   while (!DONE() && spent < budgetMs) {
@@ -100,7 +104,10 @@ describe('Ludo turn machinery', () => {
     const spent = await playToResult('ludo_practice')
 
     expect(DONE()).toBe(true)
-    expect(spent).toBeLessThan(200_000)
+    // A bot turn is 900ms of spin plus a 650ms beat before the token moves, so
+    // each one eats ~2 of this loop's 1000ms ticks; the old silent commit fitted
+    // in one. Same game, roughly twice the fake clock.
+    expect(spent).toBeLessThan(350_000)
     expect(settle).toHaveBeenCalledTimes(1)
     const arg = settle.mock.calls[0][0] as unknown as { game: string; modeId: string; outcome: Outcome }
     expect(arg.game).toBe('ludo')
