@@ -28,6 +28,11 @@ export default function Auth() {
   const [googlePending, setGooglePending] = useState(false)
   const authed = useStore((s) => s.authed)
 
+  // On a device, in-app Google sign-in is only real when the client id is compiled
+  // into the build. On the web it can fall back to a normal OAuth redirect, so the
+  // button stays there.
+  const googleAvailable = !isNative() || Boolean(import.meta.env.VITE_GOOGLE_CLIENT_ID)
+
   useEffect(() => {
     if (authed && googlePending) {
       setGooglePending(false)
@@ -121,7 +126,14 @@ export default function Auth() {
           </button>
         )}
 
-        {(step === 'login' || step === 'signup') && (
+        {/* Google sign-in, only where it can actually complete.
+            On a device it needs a native Google client id; without one
+            signInWithGoogle() throws 'Google sign-in needs Supabase to be
+            configured' and the player is left on the screen with an error. The
+            button is removed instead - a login option that always fails is worse
+            than no login option, because it costs the player their first attempt
+            at signing up. Set VITE_GOOGLE_CLIENT_ID and it returns. */}
+        {googleAvailable && (step === 'login' || step === 'signup') && (
           <>
             <div className="flex items-center gap-3 py-0.5">
               <span className="h-px flex-1" style={{ background: 'var(--line)' }} />

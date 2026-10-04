@@ -4,7 +4,7 @@ import { ChevronLeft, X, Volume2, VolumeX, Mic, MicOff, Trophy, Frown, Handshake
 import { useT } from '../../i18n'
 import { Modal, useToast } from '../../ui/components'
 import { fmt } from '../../lib/money'
-import { useVoiceRoom } from '../../lib/realtime'
+import { useVoiceRoom, hasTurn } from '../../lib/realtime'
 import type { Outcome } from '../../lib/store'
 
 const iconBtn = 'grid h-9 w-9 place-items-center rounded-full text-white/90 active:scale-90 transition'
@@ -76,6 +76,20 @@ export function VoiceButton({ roomId }: { roomId?: string }) {
   const t = useT()
   const toast = useToast()
   const { on, level, toggle, peerCount, live } = useVoiceRoom(roomId ?? null)
+
+  // No TURN relay configured, so no button.
+  //
+  // STUN alone does work on some networks, which is exactly why this was left
+  // showing: it usually connected on wifi and usually did not on mobile data,
+  // where carrier NAT is strict. So the mic opened, no peer ever arrived, and the
+  // player was left holding a live-looking button that could not carry a call - the
+  // outcome the app itself warns about in realtime.ts. Half-working is the worst
+  // case to ship to someone who will pay to talk to an opponent.
+  //
+  // Setting VITE_TURN_URLS and VITE_TURN_CREDENTIAL brings the button back; nothing
+  // else has to change.
+  if (!hasTurn()) return null
+
   const click = async () => {
     const wasOn = on
     const err = await toggle()
