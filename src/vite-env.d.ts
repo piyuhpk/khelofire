@@ -19,15 +19,11 @@ interface ImportMetaEnv {
   readonly VITE_TURN_URLS?: string
   readonly VITE_TURN_USERNAME?: string
   readonly VITE_TURN_CREDENTIAL?: string
-  /**
-   * Google Web OAuth client id (…apps.googleusercontent.com). Required for
-   * in-app Google sign-in on a device - without it the app has to fall back to
-   * the system browser. Find it in Google Cloud console → APIs & Services →
-   * Credentials → OAuth 2.0 Client IDs → Web application.
-   */
-  readonly VITE_GOOGLE_CLIENT_ID?: string
-  /** iOS-only variant of the above; Android and web ignore it. */
-  readonly VITE_GOOGLE_IOS_CLIENT_ID?: string
+  // The VITE_GOOGLE_* ids are gone. Google sign-in was removed rather than left
+  // behind half-wired: it needed a Web-application OAuth client id that the build
+  // did not have, so on a device the button failed every time with a Google error
+  // that named nothing the player could act on. Email and password cover sign-in,
+  // signup and password reset, so nothing is lost that actually worked.
 }
 
 interface ImportMeta {

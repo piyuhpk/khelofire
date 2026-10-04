@@ -5,7 +5,7 @@ import './index.css'
 import { ToastProvider } from './ui/components'
 import { AppLayout } from './app/AppLayout'
 import { RequireAuth } from './app/RequireAuth'
-import { bootstrapAuth, handleOAuthReturn, isNativeApp } from './lib/auth'
+import { bootstrapAuth, isNativeApp } from './lib/auth'
 import Auth from './features/auth/Auth'
 import Home from './features/home/Home'
 import Lobby from './features/lobby/Lobby'
@@ -81,22 +81,6 @@ document.documentElement.setAttribute('data-theme', theme)
 // restore a live Supabase session if the project is wired (no-op in demo mode)
 bootstrapAuth()
 
-// Google OAuth comes back into the APK as a deep link (khelofire://auth-callback).
-// Without this listener the app opens, finds no session, and looks like the
-// button did nothing. Imported dynamically so the web build is unaffected.
-if (import.meta.env.PROD) {
-  void import('@capacitor/app')
-    .then(async ({ App }) => {
-      // a cold start triggered by the redirect
-      const launched = await App.getLaunchUrl()
-      if (launched?.url?.includes('auth-callback')) void handleOAuthReturn(launched.url)
-      // and a warm start while the app is already open
-      App.addListener('appUrlOpen', ({ url }) => {
-        if (url.includes('auth-callback')) void handleOAuthReturn(url)
-      })
-    })
-    .catch(() => { /* not a native build */ })
-}
 
 // live cross-device announcements (Supabase Realtime broadcast; no-op without keys)
 import('./lib/realtime').then((m) => m.initRealtimeAnnouncements()).catch(() => {})
