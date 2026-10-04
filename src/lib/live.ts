@@ -94,6 +94,76 @@ export async function createMatch(modeId: string, code?: string): Promise<LiveMa
   }
 }
 
+/** A table in the lobby, as list_open_tables reports it. */
+export interface OpenTable {
+  match_id: string
+  game: string
+  mode: string
+  mode_label: string
+  /** seats filled, not the seats available */
+  seated: number
+  seat_count: number
+  entry_minor: number
+  prize_minor: number
+  host_name: string
+  /** seconds since anyone touched this table; the "is it still alive" signal */
+  refreshed_seconds: number
+}
+
+/**
+ * Tables that can be joined right now.
+ *
+ * The alternative is a lobby where the only way in is already knowing somebody's code,
+ * which works for two people standing together and for nobody else. A player opening
+ * the app alone has no way to find anyone, so every one of them creates a table, waits,
+ * and leaves - and the lobby stays empty because it always was.
+ *
+ * Deliberately no error when the list is empty or the call fails: an unreachable lobby
+ * list means "nobody to show", not "something went wrong". An error banner here would
+ * tell a player their app is broken when the honest answer is that nobody is playing.
+ */
+export async function listOpenTables(game?: string): Promise<OpenTable[]> {
+  if (!hasSupabase) return []
+  const { data, error } = await supabase!.rpc('list_open_tables', { p_game: game ?? null })
+  if (error) return []
+  return (data ?? []) as OpenTable[]
+}
+
+/**
+ * Say the table is still here, as the host.
+ *
+ * Without this a host who has been waiting a couple of minutes stops appearing in the
+ * lobby list, which they read as "nobody can join me" at exactly the moment somebody
+ * could. Cheap, and host-only so the lobby cannot be filled with rooms nobody is in.
+ */
+export async function touchTable(matchId: string): Promise<void> {
+  if (!hasSupabase) return
+  await supabase!.rpc('touch_live_table', { p_match_id: matchId })
+}
+
+/**
+ * Take a seat at a table the lobby is showing, by match id.
+ *
+ * Not by code. The lobby lists tables by id precisely so the join code never leaves the
+ * server, and this is the path that honours that: it asks the server for a seat in a
+ * match the caller was told about, and the server re-checks that the table is still
+ * waiting, still has room, and that the caller is not already seated.
+ *
+ * It resolves to the code as well, because the seated player is shown it to send to
+ * their opponent. That is the one moment the code is disclosed, and it is disclosed to
+ * somebody who is already in the match.
+ */
+export async function joinOpenTable(matchId: string): Promise<LiveMatch> {
+  requireSupabase()
+  const { data, error } = await supabase!.rpc('join_live_match_by_id', { p_match_id: matchId })
+  if (error) throw new LiveError(error.message, 'join_failed')
+
+  const row = (data ?? {}) as { match_id: string }
+  const full = await fetchMatch(row.match_id)
+  if (!full) throw new LiveError('joined but the table could not be read', 'fetch_failed')
+  return full
+}
+
 /** Claim a free seat on someone else's table. */
 export async function joinMatch(code: string): Promise<LiveMatch> {
   requireSupabase()

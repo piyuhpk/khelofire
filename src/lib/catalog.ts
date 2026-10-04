@@ -113,7 +113,18 @@ export const GAME_META: Record<GameKey, { nameKey: string; icon: 'ludo' | 'chess
   guti: { nameKey: 'home.guti', icon: 'guti' },
   dice: { nameKey: 'home.dice', icon: 'dice' },
 }
-export const GAME_ORDER: GameKey[] = ['ludo', 'chess', 'guti', 'dice']
+/**
+ * Section order for the in-game hub.
+ *
+ * Ludo is deliberately absent. It is the one game with a live paid table, and it lives
+ * in its own Ludo King category card where a player goes looking for a real opponent -
+ * not listed alongside the bot games. Having it in both places meant the King card, the
+ * one route to a real match, was no longer the only one.
+ *
+ * The admin panel keeps its own list and still needs every game, so this is a hub
+ * display order rather than the set of games that exist.
+ */
+export const GAME_ORDER: GameKey[] = ['chess', 'guti', 'dice']
 
 /**
  * Which games actually have a live opponent engine behind them.
@@ -155,5 +166,5 @@ export interface Banner {
 export const BANNERS: Banner[] = [
   { id: 'b1', titleBn: 'লুডু খেলুন,\nটাকা জিতুন!', titleEn: 'Play Ludo,\nWin Money!', subBn: 'প্রতিদিন টুর্নামেন্ট • বিকাশ / নগদে উইথড্র', subEn: 'Daily tournaments • Withdraw to bKash / Nagad', bg: 'linear-gradient(120deg,#6D28D9 0%,#4C1D95 55%,#2E1065 100%)', glow: 'rgba(139,92,255,.5)', art: 'ludo', ctaKey: 'common.playNow', go: '/join/ludo_classic' },
   { id: 'b2', titleBn: 'বন্ধুকে আনুন,\nবোনাস নিন!', titleEn: 'Refer a friend,\nget a bonus!', subBn: 'রেফার কোড শেয়ার করুন — দুজনেই পুরস্কার পাবেন', subEn: 'Share your code — you both earn rewards', bg: 'linear-gradient(120deg,#F59E0B 0%,#EA580C 55%,#C2410C 100%)', glow: 'rgba(234,88,12,.5)', art: 'refer', ctaKey: 'home.refer', go: '/wallet' },
-  { id: 'b3', titleBn: 'দাবা ও ১৬ গুটি\nটুর্নামেন্ট', titleEn: 'Chess & 16 Guti\nTournaments', subBn: 'দক্ষতার খেলা — আসল পুরস্কার জিতুন', subEn: 'Games of skill — win real prizes', bg: 'linear-gradient(120deg,#0891B2 0%,#0E7490 55%,#155E75 100%)', glow: 'rgba(34,211,238,.45)', art: 'chess', ctaKey: 'common.playNow', go: '/join/chess_1v1' },
+  { id: 'b3', titleBn: 'দাবা ও ১৬ গুটি\nটুর্নামেন্ট', titleEn: 'Chess & 16 Guti\nTournaments', subBn: 'দক্ষতার খেলা — আসল পুরস্কার জিতুন', subEn: 'Games of skill — win real prizes', bg: 'linear-gradient(120deg,#0891B2 0%,#0E7490 55%,#155E75 100%)', glow: 'rgba(34,211,238,.45)', art: 'chess', ctaKey: 'common.playNow', go: '/play/chess/chess_practice' },
 ]

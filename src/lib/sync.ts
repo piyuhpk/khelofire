@@ -43,16 +43,40 @@ function ledgerTypeOf(note: string): LedgerType {
   return 'entry_debit'
 }
 
-/** Load the signed-in user's profile + history from Supabase into the store. */
+/** The transactions columns this file reads. Named so the sort and the map below stay typed. */
+interface TxnRow {
+  id: string
+  amount_minor: number
+  note: string
+  status: string
+  created_at: string
+}
+
+/**
+ * Load the signed-in user's profile + history from Supabase into the store.
+ *
+ * Concurrent calls are collapsed into one. Signing in with Google runs this twice -
+ * once from signInWithGoogle and again from the onAuthStateChange that the same login
+ * fires - and both were reaching the error handler, so a single failure put two
+ * identical error banners on screen at once. Two popups for one problem reads as two
+ * problems, and sends the player looking for a second fault that does not exist.
+ */
+let loading = false
 export async function loadUserData() {
   if (!hasSupabase || !supabase) return
+  if (loading) return
+  loading = true
   try {
     uid = await currentUserId()
   } catch (e) {
     notifyError('Session check failed', e)
+    loading = false
     return
   }
-  if (!uid) return
+  if (!uid) {
+    loading = false
+    return
+  }
   const me = uid
   hydrating = true
   try {
@@ -67,10 +91,20 @@ export async function loadUserData() {
       })
     }
 
-    const { data: txns, error: txnErr } = await supabase
-      .from('transactions').select('*').eq('user_id', me)
-      .order('created_at', { ascending: false }).limit(60)
-    if (txnErr) throw new Error(txnErr.message)
+    // The wallet and the name are the two things the rest of the app reads, so a
+    // failure here is the real error worth showing. History is not: the column grants
+    // are deliberately narrow on transactions, and a denied history read used to abort
+    // the whole load and report it, leaving a signed-in player looking at an error
+    // banner and an empty wallet. Missing history is not a failure to log in.
+    let txns: TxnRow[] | null = null
+    try {
+      const res = await supabase
+        .from('transactions').select('*').eq('user_id', me)
+        .order('created_at', { ascending: false }).limit(60)
+      txns = (res.data ?? null) as TxnRow[] | null
+    } catch {
+      txns = null
+    }
     if (txns) {
       // balance_after is reconstructed by walking the newest-first rows
       const rows = [...txns].sort((a, b) => a.created_at.localeCompare(b.created_at))
@@ -123,6 +157,7 @@ export async function loadUserData() {
     notifyError('Could not load your data', e)
   } finally {
     hydrating = false
+    loading = false
     startSync()
   }
 }

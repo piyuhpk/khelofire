@@ -13,9 +13,12 @@ import { useI18n } from '../../i18n'
 import { useToast, Spinner } from '../../ui/components'
 import {
   createMatch, joinMatch, startMatch, cancelMatch, fetchMatch, subscribeMatch,
-  isValidCode, readState, LiveError, type LiveMatch,
+  isValidCode, readState, listOpenTables, touchTable, joinOpenTable, LiveError, type LiveMatch, type OpenTable,
 } from '../../lib/live'
 import { modeById } from '../../lib/catalog'
+
+/** minor units -> the short money string the lobby uses everywhere else */
+const fmt = (minor: number): string => (minor / 100).toFixed(0)
 
 export default function LiveTables() {
   const { lang } = useI18n()
@@ -28,8 +31,32 @@ export default function LiveTables() {
   // the table this device is sitting at, if any
   const [table, setTable] = useState<LiveMatch | null>(null)
   const [starting, setStarting] = useState(false)
+  const [tables, setTables] = useState<OpenTable[]>([])
 
   const bn = lang === 'bn'
+
+  // What other people have open, polled while this screen is mounted. A table left
+  // alone is hidden by the server after 90 seconds, so this poll is also how the list
+  // empties itself instead of filling with rooms nobody is sitting in.
+  useEffect(() => {
+    let alive = true
+    const poll = async () => {
+      const rows = await listOpenTables()
+      if (alive) setTables(rows)
+    }
+    void poll()
+    const id = setInterval(() => void poll(), 8000)
+    return () => { alive = false; clearInterval(id) }
+  }, [])
+
+  // While waiting for an opponent, keep saying the table is alive. Without this the
+  // host's own table stops appearing in the list after 90 seconds, which reads as
+  // "nobody can join me" at exactly the moment somebody could.
+  useEffect(() => {
+    if (!table || table.status !== 'waiting') return
+    const id = setInterval(() => { void touchTable(table.match_id) }, 30000)
+    return () => clearInterval(id)
+  }, [table?.match_id, table?.status]) // eslint-disable-line
 
   // Re-read whenever the table changes. Realtime is only a nudge - the state
   // always comes from the database, so a dropped message cannot desync the board.
@@ -78,6 +105,28 @@ export default function LiveTables() {
       toast(bn ? 'টেবিলে যোগ দিলেন' : 'Joined the table', 'ok')
     } catch (e) {
       toast(errText(e, bn), 'err')
+    } finally { setBusy(null) }
+  }
+
+  /**
+   * Take a seat at a table from the lobby list.
+   *
+   * The list is a list of match ids, not codes, and that is deliberate: exposing the
+   * code would let anyone read a table's address out of the lobby. So the seat is taken
+   * through a server call that re-reads the row and does the same checks a code join
+   * does. It also means a table that filled up between the poll and the tap fails here
+   * with "table is full", rather than quietly landing the player somewhere else.
+   */
+  const doJoinOpen = async (t: OpenTable) => {
+    setBusy('join')
+    try {
+      const m = await joinOpenTable(t.match_id)
+      setTable(m)
+      toast(bn ? 'টেবিলে যোগ দিলেন' : 'Joined the table', 'ok')
+    } catch (e) {
+      toast(errText(e, bn), 'err')
+      // the list is a snapshot; drop the row that just failed so it cannot be tapped twice
+      setTables((rows) => rows.filter((r) => r.match_id !== t.match_id))
     } finally { setBusy(null) }
   }
 
@@ -184,13 +233,52 @@ export default function LiveTables() {
         <h2 className="text-lg font-extrabold mb-1">{bn ? 'লাইভ ম্যাচ' : 'Live match'}</h2>
         <p className="text-sm text-muted mb-4">
           {bn
-            ? 'সত্যিকারের প্রতিপক্ষের সাথে খেলতে টেবিল খুলুন বা কোড দিয়ে যোগ দিন।'
-            : 'Play a real person: open a table and share the code, or enter a code you were given.'}
+            ? 'সত্যিকারের প্রতিপক্ষের সাথে খেলুন — নিচের টেবিলে যোগ দিন, নতুন টেবিল খুলুন, অথবা কোড দিয়ে যোগ দিন।'
+            : 'Play a real person: join a table below, open a new one, or enter a code you were given.'}
         </p>
+
+        {/* Open tables first. This used to be create-a-table and a code box, which
+            works only for two people standing together - a player opening the app alone
+            had no way to find anyone, so they created a table, waited, and left. */}
+        {tables.length > 0 && (
+          <>
+            <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
+              {bn ? `খোলা টেবিল (${tables.length})` : `Open tables (${tables.length})`}
+            </p>
+            <div className="mb-4 space-y-2">
+              {tables.map((t) => (
+                <button key={t.match_id} onClick={() => doJoinOpen(t)}
+                  disabled={busy !== null}
+                  className="flex w-full items-center gap-3 rounded-2xl p-3 text-left active:scale-[.99] transition disabled:opacity-50"
+                  style={{ background: 'var(--surface-2)', border: '1px solid var(--line)' }}>
+                  <span className="grid h-11 w-11 shrink-0 place-items-center rounded-xl"
+                    style={{ background: 'var(--grad)' }}>
+                    <Users className="h-5 w-5 text-white" strokeWidth={2.2} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="truncate text-sm font-bold">{t.mode_label}</div>
+                    <div className="truncate text-[11px] text-muted">
+                      {t.host_name} · {t.seated}/{t.seat_count} seated
+                      {/* seconds since the host last touched it: the difference between a
+                          table someone is sitting in and one they have walked away from */}
+                      {t.refreshed_seconds < 12
+                        ? (bn ? ' · এখনই সক্রিয়' : ' · active now')
+                        : ` · ${t.refreshed_seconds}s ago`}
+                    </div>
+                  </div>
+                  <div className="shrink-0 text-right">
+                    <div className="text-sm font-extrabold tnum">{fmt(t.entry_minor)}</div>
+                    <div className="text-[10px] text-muted">{bn ? 'এন্ট্রি' : 'entry'}</div>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </>
+        )}
 
         <button onClick={doCreate} disabled={busy !== null} className="btn-primary mb-3 w-full">
           {busy === 'create' ? <Spinner className="h-4 w-4" /> : <Plus className="h-4 w-4" strokeWidth={2.6} />}
-          {bn ? 'টেবিল খুলুন' : 'Create a table'}
+          {bn ? 'নতুন টেবিল খুলুন' : 'Open a new table'}
         </button>
 
         <div className="flex items-center gap-2 my-3 text-[11px] text-muted uppercase tracking-wider">

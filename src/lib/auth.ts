@@ -196,7 +196,21 @@ export async function signInWithGoogle() {
     if (!googleReady) {
       await SocialLogin.initialize({
         google: {
-          webClientId: clientId,
+          // On Android the plugin feeds this to GoogleSignInOptions.serverClientId(),
+          // which is why asking for any scope fails outright when it is an ANDROID
+          // client id. Google checks that the server client is a Web application
+          // client, and the account chooser dies with "10: DEVELOPER_ERROR" the
+          // moment a scope is requested.
+          //
+          // So the two are separate values on purpose. VITE_GOOGLE_CLIENT_ID is the
+          // Android client (package name + SHA-1, used to register the app with
+          // Google); VITE_GOOGLE_SERVER_CLIENT_ID is the Web application client from
+          // the same Google Cloud project, and that is the only one valid here.
+          //
+          // Falling back to the Android id keeps a half-configured build reaching
+          // Google's own error message, which names the problem, instead of failing
+          // with a local "not configured" that names nothing.
+          webClientId: import.meta.env.VITE_GOOGLE_SERVER_CLIENT_ID || clientId,
           iOSClientId: import.meta.env.VITE_GOOGLE_IOS_CLIENT_ID,
           iOSServerClientId: import.meta.env.VITE_GOOGLE_CLIENT_ID,
         },
