@@ -125,6 +125,15 @@ export default function LudoGame() {
   const username = useStore((s) => s.username) || t('common.guest')
   const avatar = useStore((s) => s.avatar)
 
+  // modeById returns undefined for an unknown id, and /play/ludo/:modeId matches
+  // any string - so a bad deep link used to reach the `m!.nameKey` deref below and
+  // white-screen. LiveTables also enters a paid table with the mode id read from
+  // Postgres, and match_modes is not restricted to the hardcoded MODES array, so
+  // a mode row the catalogue does not know about could reach a real board too.
+  // Bounce rather than render nothing meaningful.
+  useEffect(() => { if (!m) nav('/', { replace: true }) }, [m, nav])
+  if (!m) return null
+
   const [st, setSt] = useState<LudoState>(() => initLudo(m?.players ?? 2))
   const [legal, setLegal] = useState<number[]>([])
   const [rolling, setRolling] = useState(false)
@@ -185,8 +194,24 @@ export default function LudoGame() {
   useEffect(() => {
     if (st.winner === null || settled.current) return
     settled.current = true
-    const outcome: Outcome = st.winner === 0 ? 'win' : 'loss'
+    // Was `st.winner === 0`, which is only correct if you are seat 0. In a real
+    // match join_live_match seats a 1v1 opponent at engine seat 2 and a 4p table
+    // uses 1/2/3, so the joiner of every paid match had its own client declare
+    // the win a loss - while the result modal a few lines down counted its home
+    // pieces from yourSeat and contradicted it.
+    const outcome: Outcome = st.winner === yourSeat ? 'win' : 'loss'
     setTimeout(() => {
+      if (matchId) {
+        // A paid match must be settled by the server, which already knows the
+        // entry and prize it debited and refuses to pay twice. settle() only
+        // added the prize to the local store, so the winner saw a balance the
+        // server never granted (gone on next reload) and settle_match was
+        // effectively never called by anything except the broken resign button.
+        void settleMatch(matchId, outcome)
+          .catch((e) => toast(e instanceof Error ? e.message : 'Settlement failed', 'err'))
+          .finally(() => setResult(outcome))
+        return
+      }
       settle({ game: 'ludo', mode: t(m!.nameKey as any), modeId: m!.id, entryMinor: m!.entryMinor, prizeMinor: m!.prizeMinor, outcome, deltaMinor: outcome === 'win' ? m!.prizeMinor - m!.entryMinor : -m!.entryMinor })
       setResult(outcome)
     }, 900)
@@ -247,7 +272,7 @@ export default function LudoGame() {
         setSt((s) => ({ ...s, dice: null, rolled: false, sixes: 0, turn: nextActive(s, p) }))
         return
       }
-      const cur: LudoState = { ...st, dice: d, rolled: true, sixes: d === 6 ? st.sixes + 1 : st.sixes }
+      const cur: LudoState = { ...st, dice: d, rolled: true, sixes: d === 6 ? st.sixes + 1 : 0 }
       const choice = botChoose(cur, p, d)
       setBotDice(d)
       if (choice === null) {
@@ -280,7 +305,14 @@ export default function LudoGame() {
   // the whole point: the old bug was a bot playing a solo game wearing a LIVE
   // badge, and the cheapest way to be sure it cannot come back is for there to be
   // no bot code path at all when a real opponent is seated.
-  const liveVersion = useRef(0)
+  // Started at -1, not 0. start_live_match seeds version = 0, so a ref starting
+  // at 0 made the very first readState answer fail the `version <= current` guard
+  // and get thrown away - along with the your_seat it carried. Every poll failed
+  // the same way until the first action bumped the version, which meant the joiner
+  // of a real match never learned which seat it was playing: it believed it was
+  // the host's turn, rendered the opponent as "You", and its first roll was
+  // rejected as out of turn.
+  const liveVersion = useRef(-1)
   const liveBusy = useRef(false)
 
   /**
@@ -443,7 +475,10 @@ const roll = () => {
     setMsg(res.state.turn === 0 && res.state.winner === null ? t('ludo.rollAgain') : '')
   }
 
-  const opponents = st.players.filter((p) => p !== 0)
+  // Filtered on the seat this client actually plays, not on 0. With a hardcoded 0
+  // a seat-2 joiner had itself drawn as an opponent and the bar below named the
+  // wrong colour "You".
+  const opponents = st.players.filter((p) => p !== yourSeat)
   const oppP = opponents[0] ?? 1
 
   return (
@@ -467,7 +502,7 @@ const roll = () => {
       {isReal && <p className="pt-1 text-center text-[11px] font-extrabold text-emerald2">● LIVE · real player seated</p>}
 
       <div className="flex flex-1 items-center justify-center px-3 py-2">
-        <LudoBoard state={st} legal={legal} onToken={onToken} />
+        <LudoBoard state={st} legal={legal} onToken={onToken} youSeat={yourSeat} />
       </div>
 
       {/* You | dice | Com bar (Ludo King style) */}

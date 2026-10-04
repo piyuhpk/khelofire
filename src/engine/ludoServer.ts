@@ -86,7 +86,12 @@ export function decideRoll(ctx: TurnContext, diceArg?: number): Decision {
 
   return {
     ok: true,
-    state: { ...state, dice, rolled: true, sixes: dice === 6 ? state.sixes + 1 : state.sixes },
+    // A non-six must RESET the counter, not leave it. This read
+// `dice === 6 ? state.sixes + 1 : state.sixes`, which was right only because the
+// move that followed used to clear it - and once the move stopped clearing it (so
+// that a capture could no longer preserve a six streak), this line had to own the
+// reset or `sixes >= 2` would trigger on two sixes with any capture between them.
+state: { ...state, dice, rolled: true, sixes: dice === 6 ? state.sixes + 1 : 0 },
     winner: null,
     turnKept: true,
   }

@@ -112,7 +112,22 @@ for (const file of files) {
   }
 
   const fns = functionBodies(sql)
-  if (fns.length === 0) bad(file, 'no function bodies found - the parser found nothing, which is itself a problem')
+  // A migration may legitimately contain no function body - a grant/revoke-only
+  // file is normal, and 008 is exactly that. What must never pass is a file that
+  // contains no statements at all: an empty or truncated migration silently does
+  // nothing while looking like it applied. This check exists for that case, and it
+  // is the reason it has to be a statement count rather than a function count -
+  // a pure `grant` line is a statement, a zero-byte file is not.
+  if (fns.length === 0) {
+    const statements = sql
+      .replace(/--[^\n]*/g, '')
+      .split(/;\s*\r?\n/)
+      .map((s) => s.trim())
+      .filter((s) => s.length > 0)
+    if (statements.length === 0) {
+      bad(file, 'no function bodies and no statements - this file is empty or truncated, so it would apply nothing')
+    }
+  }
 
   // ---- 3. every function body must be closed. Counting begin/end with a regex
   //        is unreliable (end if; / end loop; / end case; all contain "end"), so

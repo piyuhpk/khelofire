@@ -38,7 +38,7 @@ function PinToken({ p, dim = false }: { p: PlayerId; dim?: boolean }) {
   )
 }
 
-export function LudoBoard({ state, legal, onToken }: { state: LudoState; legal: number[]; onToken: (i: number) => void }) {
+export function LudoBoard({ state, legal, onToken, youSeat = 0 }: { state: LudoState; legal: number[]; onToken: (i: number) => void; youSeat?: PlayerId }) {
   const tokenAt: Record<string, { p: PlayerId; i: number; pos: number }[]> = {}
   // Finished tokens all share the single centre square. Fanning them out by
   // token index keeps all four visible instead of burying three under one.
@@ -138,7 +138,12 @@ export function LudoBoard({ state, legal, onToken }: { state: LudoState; legal: 
         {Object.entries(tokenAt).map(([k, list]) =>
           list.map(({ p, i, pos }, si) => {
             const [r, c] = k.split(',').map(Number)
-            const isLegal = p === 0 && p === state.turn && legal.includes(i)
+            // `p === 0` here made seat 0 the only tappable player in every
+            // match. In a real 1v1 the joiner plays seat 2, and in 4p seats 1/2/3,
+            // so those players could roll the die and then not be able to move
+            // anything - a paid board nobody could finish. The seat is now passed
+            // in, defaulting to 0 so a local game needs no prop.
+            const isLegal = p === youSeat && p === state.turn && legal.includes(i)
             const n = list.length
             // Two or more tokens on one square are shrunk and fanned out. They
             // used to sit on the exact same pixel, so a pile read as one piece and

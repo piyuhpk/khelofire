@@ -99,7 +99,13 @@ export function applyMove(s: LudoState, p: PlayerId, tokenIdx: number, dice: num
       tokens,
       dice: null,
       rolled: false,
-      sixes: extraTurn ? s.sixes : 0,
+      // Only the roll may change the sixes counter, so a move must leave it exactly as
+// it was. It was `extraTurn ? s.sixes : 0`, and because extraTurn is also true for
+// a capture or a piece reaching home, a capturing move on a NON-six kept the
+// counter: roll 6, move, roll 4 and capture, roll 6, roll 6 -> forfeited for
+// "three consecutive sixes" having rolled two. A player in a paid match lost their
+// turn over a capture they were entitled to.
+sixes: s.sixes,
       winner,
       turn: winner ? p : extraTurn ? p : nextActive(s, p),
     },

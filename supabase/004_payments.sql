@@ -259,6 +259,10 @@ begin
   end if;
 end; $$;
 revoke all on function public.decide_deposit(uuid, boolean, uuid) from public, anon, authenticated;
+-- service_role is the identity the admin-wallet Edge Function calls as, and it is
+-- the ONLY caller allowed to decide a request. Without this grant the revoke above
+-- removed the function from every role and payments could never be approved.
+grant execute on function public.decide_deposit(uuid, boolean, uuid) to service_role;
 
 create or replace function public.decide_withdrawal(p_id uuid, p_approve boolean, p_staff uuid)
 returns void language plpgsql security definer set search_path = public as $$
@@ -293,6 +297,7 @@ begin
   end if;
 end; $$;
 revoke all on function public.decide_withdrawal(uuid, boolean, uuid) from public, anon, authenticated;
+grant execute on function public.decide_withdrawal(uuid, boolean, uuid) to service_role;
 
 -- Stale deploys fail here, with the fix in the message.
 create or replace function public.decide_deposit(p_id uuid, p_approve boolean)
