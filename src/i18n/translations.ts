@@ -1,4 +1,4 @@
-export const translations = {
+﻿export const translations = {
   bn: {
     // nav
     'nav.home': 'গেম', 'nav.matches': 'আমার ম্যাচ', 'nav.wallet': 'টাকা', 'nav.profile': 'প্রোফাইল',
@@ -15,9 +15,12 @@ export const translations = {
     'auth.noAccount': 'অ্যাকাউন্ট নেই?', 'auth.haveAccount': 'অ্যাকাউন্ট আছে?', 'auth.demoNote': 'আপনার তথ্য দিয়ে চালিয়ে যান',
     // home
     'home.heroTitle': 'লুডু খেলুন, টাকা জিতুন!', 'home.heroSub': 'টুর্নামেন্টে অংশ নিন, আসল পুরস্কার জিতুন',
+    // Shown when a paid mode is opened without a real table. Without it the player
+    // got a bot game that credited a real prize for free.
+    'ludo.noEntry': 'এই মোডে খেলতে লাইভ টেবিল থেকে ঢুকুন', 'ludo.noEntryEn': 'Join a live table to play this mode',
     'home.addMoney': 'টাকা যোগ', 'home.withdraw': 'উত্তোলন', 'home.refer': 'রেফার', 'home.transactions': 'লেনদেন',
     'home.ludo': 'লুডু', 'home.chess': 'দাবা', 'home.classic1v1': 'ক্লাসিক ১vs১', 'home.4player': '৪ প্লেয়ার ব্যাটল',
-    'home.quickPlay': 'কুইক প্লে', 'home.practice': 'প্র্যাকটিস (বট)', 'home.chess1v1': 'দাবা ১vs১', 'home.chessPractice': 'দাবা প্র্যাকটিস',
+    'home.quickPlay': 'কুইক প্লে', 'home.practice': 'প্র্যাকটিস (বট)', 'home.practice4p': '৪ প্লেয়ার প্র্যাকটিস', 'home.chess1v1': 'দাবা ১vs১', 'home.chessPractice': 'দাবা প্র্যাকটিস',
     'home.guti': '১৬ গুটি', 'home.dice': 'ডাইস ডুয়েল', 'home.guti1v1': '১৬ গুটি ১vs১', 'home.gutiPractice': '১৬ গুটি প্র্যাকটিস',
     'home.diceDuel': 'ডাইস ডুয়েল ১vs১', 'home.dicePractice': 'ডাইস প্র্যাকটিস',
     'home.all': 'সব', 'home.openMatches': 'খোলা ম্যাচ', 'tag.tournament': 'টুর্নামেন্ট', 'tag.instant': 'ইনস্ট্যান্ট', 'tag.free': 'ফ্রি',
@@ -82,6 +85,7 @@ export const translations = {
     'common.confirm': 'Confirm', 'common.back': 'Back', 'common.retry': 'Retry',
     'common.loading': 'Loading…', 'common.free': 'Free', 'common.home': 'Home', 'common.close': 'Close',
     'common.guest': 'Guest',
+    'ludo.noEntry': 'Join a live table to play this mode',
     'common.balance': 'Balance', 'common.prize': 'Prize', 'common.entry': 'Entry Fee', 'common.rules': 'Rules',
     'auth.login': 'Login', 'auth.signup': 'Sign Up', 'auth.phoneEmail': 'Phone or Email',
     'auth.password': 'Password', 'auth.forgot': 'Forgot password?', 'auth.name': 'Name',
@@ -90,7 +94,7 @@ export const translations = {
     'home.heroTitle': 'Play Ludo, Win Money!', 'home.heroSub': 'Join tournaments, win real prizes',
     'home.addMoney': 'Add Money', 'home.withdraw': 'Withdraw', 'home.refer': 'Refer', 'home.transactions': 'Transactions',
     'home.ludo': 'Ludo', 'home.chess': 'Chess', 'home.classic1v1': 'Classic 1v1', 'home.4player': '4 Player Battle',
-    'home.quickPlay': 'Quick Play', 'home.practice': 'Practice (Bot)', 'home.chess1v1': 'Chess 1v1', 'home.chessPractice': 'Chess Practice',
+    'home.quickPlay': 'Quick Play', 'home.practice': 'Practice (Bot)', 'home.practice4p': '4-Player Practice', 'home.chess1v1': 'Chess 1v1', 'home.chessPractice': 'Chess Practice',
     'home.guti': '16 Guti', 'home.dice': 'Dice Duel', 'home.guti1v1': '16 Guti 1v1', 'home.gutiPractice': '16 Guti Practice',
     'home.diceDuel': 'Dice Duel 1v1', 'home.dicePractice': 'Dice Practice',
     'home.all': 'All', 'home.openMatches': 'open matches', 'tag.tournament': 'TOURNAMENT', 'tag.instant': 'INSTANT', 'tag.free': 'FREE',

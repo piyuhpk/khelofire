@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom'
 import { ChevronLeft, Dice5, Crown, Grid3x3, Dices, Trophy, Ticket, Users, Clock, Sparkles } from 'lucide-react'
 import { useT, useI18n } from '../../i18n'
-import { MODES, GAME_META } from '../../lib/catalog'
+import { allModes, modeName, GAME_META } from '../../lib/catalog'
 import { useStore, type GameKey } from '../../lib/store'
 import { fmt } from '../../lib/money'
 import { EmptyState, ListSkeleton, useReady } from '../../ui/components'
@@ -16,7 +16,7 @@ export default function Lobby() {
   const ready = useReady(500)
   const gk = game as GameKey
   const chessEnabled = useStore((s) => s.siteConfig.chessEnabled)
-  const modes = MODES.filter((m) => m.game === gk && !m.practice && (m.game !== 'chess' || chessEnabled))
+  const modes = allModes().filter((m) => m.game === gk && !m.practice && (m.game !== 'chess' || chessEnabled))
   const Icon = GAME_ICON[gk] ?? Dice5
   const title = GAME_META[gk] ? t(GAME_META[gk].nameKey as any) : game
 
@@ -53,7 +53,7 @@ export default function Lobby() {
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
                     <div className="font-display font-extrabold flex items-center gap-2">
-                      {t(m.nameKey as any)}
+                      {modeName(m, t as any, lang === 'bn')}
                       <span className="chip tnum text-[11px] font-extrabold" style={{ backgroundImage: 'var(--grad-gold)', color: '#2A1D00' }}>
                         <Trophy className="h-3 w-3" strokeWidth={2.6} />{fmt(m.prizeMinor)}
                       </span>

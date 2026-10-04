@@ -44,6 +44,12 @@ const router = createBrowserRouter([
   { path: '/wallet', element: <RequireAuth><Wallet /></RequireAuth> },
   { path: '/profile', element: <RequireAuth><Profile /></RequireAuth> },
   { path: '/matches', element: <RequireAuth><MyMatches /></RequireAuth> },
+  // No RequireAuth and no entry check here. /play/ludo/anything is reachable by
+  // deep link, browser history or an Android intent, and LudoGame settles with the
+  // mode's real entry and prize - so opening a paid mode directly started a bot
+  // game that, on a win, credited the prize locally without any entry ever being
+  // debited. Guarded inside the component now (see LudoGame) because a router
+  // wrapper cannot know whether a match id was carried in.
   { path: '/play/ludo/:modeId', element: <LudoGame /> },
   { path: '/play/chess/:modeId', element: <ChessGame /> },
   { path: '/play/guti/:modeId', element: <GutiGame /> },

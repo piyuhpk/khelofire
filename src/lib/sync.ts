@@ -16,6 +16,7 @@ import { supabase, hasSupabase } from './supabase'
 import { useStore, type Ledger, type MatchRecord, type LedgerType, type TxnStatus, type Outcome } from './store'
 import { notifyError } from './notice'
 import * as wallet from './wallet'
+import * as live from './live'
 
 let uid: string | null = null
 let started = false
@@ -113,6 +114,11 @@ export async function loadUserData() {
     if (pending && (pending.deposits.length || pending.withdrawals.length)) {
       useStore.getState().setPendingRequests(pending)
     }
+
+    // The mode catalogue. Fetched on every load, not just at login, so a mode the
+    // admin creates or edits appears without the player being made to sign out.
+    // Best-effort: with no database the built-in list stands on its own.
+    await live.loadDbModes().catch(() => 0)
   } catch (e) {
     notifyError('Could not load your data', e)
   } finally {

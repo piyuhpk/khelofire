@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useT, useI18n } from '../../i18n'
 import { modeById } from '../../lib/catalog'
 import { useStore, type Outcome } from '../../lib/store'
-import { readState, sendAction, subscribeMatch, settleMatch, LiveError, type LiveGameState } from '../../lib/live'
+import { readState, sendAction, subscribeMatch, settleMatch, resignLiveMatch, LiveError, type LiveGameState } from '../../lib/live'
 import { GameHeader, VoiceButton, ExitModal, ResultModal } from '../game/GameShell'
 import { MatchChat } from '../game/MatchChat'
 import { useToast } from '../../ui/components'
@@ -133,6 +133,7 @@ export default function LudoGame() {
   // Bounce rather than render nothing meaningful.
   useEffect(() => { if (!m) nav('/', { replace: true }) }, [m, nav])
   if (!m) return null
+  if (!m) return null
 
   const [st, setSt] = useState<LudoState>(() => initLudo(m?.players ?? 2))
   const [legal, setLegal] = useState<number[]>([])
@@ -146,6 +147,28 @@ export default function LudoGame() {
   // bumped whenever the turn moves on, so an in-flight dice animation knows its
   // result is stale instead of writing rolled:true onto somebody else's turn
   const rollToken = useRef(0)
+  // Resign is a two-round-trip operation that changes a paid match, so it must not
+  // be fireable twice from a double tap.
+  const [resigning, setResigning] = useState(false)
+
+  /** Leave a real match. Every exit path goes through here, including the one that
+   *  happens because the player closed the app on a phone. */
+  const giveUp = async () => {
+    if (!matchId || resigning) return
+    setResigning(true)
+    settled.current = true
+    try {
+      await resignLiveMatch(matchId)
+      nav('/', { replace: true })
+    } catch (e) {
+      // Leaving anyway would strand the opponent on a live board with the entry
+      // gone, which is exactly the failure this exists to prevent. Stay put, say
+      // why, and let the player try again.
+      settled.current = false
+      setResigning(false)
+      toast(liveErr(e, lang === 'bn'), 'err')
+    }
+  }
 
   const loc = useLocation()
   // `isReal` used to come from navigation state, which meant "somebody handed us
@@ -153,8 +176,32 @@ export default function LudoGame() {
   // browsers on the same lobby screen. That labelled a solo bot game as a live
   // match. A game is real when a real seat exists, and that now arrives as a
   // match id from the room-code flow. Nothing can set it by asking nicely.
-  const matchId = ((loc.state as any)?.matchId as string | undefined) ?? undefined
+  //
+  // Read from the query string as well as the router state. State does not survive
+  // a reload, an Android process death/app restore, an in-app refresh or the
+  // Capacitor WebView reloading its bundle, and losing it was not a neutral
+  // fallback: isReal went false, the bot effect started running, and this client
+  // began playing a local game on a board the opponent was still playing - entry
+  // debited, match stuck live, nothing to go back to.
+  const queryMatchId = new URLSearchParams(loc.search).get('m') || undefined
+  const matchId = (((loc.state as any)?.matchId as string | undefined) ?? queryMatchId)
   const isReal = !!matchId
+  // A paid mode reached without a match id is not a game, it is a free win: settle
+  // below credits the mode's real prize with no entry ever debited, and a deep link
+  // to /play/ludo/ludo_classic is all it takes. Rather than let that stand, a mode
+  // that costs money is only playable through a real table.
+  const modeIsPaid = m ? m.entryMinor > 0 && !m.practice : false
+  const blockedNoMatch = modeIsPaid && !matchId
+
+  // A paid mode opened without a match id cannot be played. It used to start a bot
+  // game that settled with the mode's real entry and prize, so the only thing
+  // between a player and a free prize was not opening the URL themselves.
+  useEffect(() => {
+    if (!blockedNoMatch) return
+    toast(t('ludo.noEntry'), 'err')
+    nav('/', { replace: true })
+  }, [blockedNoMatch, toast, t, nav])
+
   // which engine seat this device owns. 0 until the server answers, and 0 in a
   // bot game, which is where it has always been.
   const [yourSeat, setYourSeat] = useState<PlayerId>(0)
@@ -339,8 +386,18 @@ export default function LudoGame() {
       sixes: v.state.sixes,
       winner: v.state.winner as PlayerId | null,
     }
+    // The seat list comes from the server. It used to be initLudo(n) with n taken
+    // from tokens.length, and tokens is always four arrays, so every 2-player real
+    // match rendered three opponent seats - two of them colours nobody was playing -
+    // and the "Com" panel then named the wrong one, because opponents[0] was Green
+    // while the actual opponent was Yellow at seat 2.
+    if (v.state.players?.length) board.players = v.state.players as PlayerId[]
     setSt(board)
     setTimer(v.seconds_left)
+    // The opponent's roll, so the die face shows the number the server rolled. In a
+    // real match botDice stayed null for ever (only the disabled bot loop set it),
+    // so the opponent's turn showed a dice emoji instead of their result.
+    if (!board.rolled && board.dice != null) setBotDice(board.dice)
 
     // Which tokens are tappable is a UI affordance, not a decision - the engine
     // re-checks the move and rejects anything illegal, so showing a stale
@@ -481,6 +538,11 @@ const roll = () => {
   const opponents = st.players.filter((p) => p !== yourSeat)
   const oppP = opponents[0] ?? 1
 
+  // Nothing renders while the redirect is in flight. The effect above already
+  // navigated, but an effect runs after the first paint, so without this the board
+  // appeared for a frame and could take a tap.
+  if (blockedNoMatch) return null
+
   return (
     <div className="app-frame flex min-h-[100dvh] flex-col" style={{
       // The in-game background from the supplied assets (the blue diamond-tiled
@@ -555,24 +617,20 @@ const roll = () => {
       </div>
 
       <div className="px-3 pb-3 pt-1 flex gap-2">
-        <button onClick={() => {
-          if (settled.current) return
+        <button disabled={resigning} onClick={() => {
+          if (settled.current || resigning) return
+          if (matchId) { void giveUp(); return }
           settled.current = true
-          if (matchId) {
-            // In a live match the wallet is not this component's business. The
-            // database decides the outcome from winner_seat, and it refuses
-            // anything that is not genuinely finished - so a resign mid-match
-            // cannot mint a loss locally, and cannot claim a win either.
-            void settleMatch(matchId, 'loss').finally(() => nav('/'))
-            return
-          }
           settle({ game: 'ludo', mode: t(m!.nameKey as any), modeId: m!.id, entryMinor: m!.entryMinor, prizeMinor: m!.prizeMinor, outcome: 'loss', deltaMinor: -m!.entryMinor })
           setResult('loss')
-        }} className="btn-danger flex-1 py-2 text-sm">{t('game.resign')}</button>
+        }} className="btn-danger flex-1 py-2 text-sm disabled:opacity-60">{resigning ? t('common.loading') : t('game.resign')}</button>
         <MatchChat opponentName={nameFor(opponents[0] ?? 1)} roomId={matchId ?? modeId ?? m!.id} />
       </div>
 
-      <ExitModal onLeave={() => nav('/')} />
+      {/* Leaving is a forfeit, not a nav(). ExitModal used to call nav('/') with no
+          RPC at all, which left the match live and the entry unsettleable for the
+          opponent - a trap that only opened when someone closed the app. */}
+      <ExitModal onLeave={() => { if (matchId) { void giveUp(); return } nav('/') }} />
       <ResultModal outcome={result} deltaMinor={result === 'win' ? m!.prizeMinor - m!.entryMinor : -m!.entryMinor} moves={homeCount(yourSeat)} />
     </div>
   )

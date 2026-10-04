@@ -47,7 +47,13 @@ export default function LiveTables() {
   }, [table?.match_id]) // eslint-disable-line
 
   const enter = (m: LiveMatch) => {
-    nav(`/play/ludo/${m.mode}`, { state: { matchId: m.match_id, real: true } })
+    // The match id goes in the URL as well as in the router state. State is lost
+    // on a reload, an Android process death/app restore, an in-app refresh or the
+    // Capacitor WebView reloading its bundle - and with it, the only thing that
+    // told LudoGame this was a real match. Losing it did not return the player to
+    // the lobby; it started a local bot game over a board the opponent was still
+    // playing, with the entry already debited and no way back.
+    nav(`/play/ludo/${m.mode}?m=${m.match_id}`, { state: { matchId: m.match_id, real: true } })
   }
 
   const doCreate = async () => {

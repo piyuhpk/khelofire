@@ -14,6 +14,11 @@ export interface GameMode {
   clock?: string
   desc: { bn: string; en: string }
   practice?: boolean
+  // A mode created in the admin panel has no i18n key - it has text the admin typed,
+  // in each language. Built-in modes always use nameKey; created modes always use
+  // these. Both are optional and exactly one is expected.
+  nameBn?: string
+  nameEn?: string
   // presentation
   theme: TileTheme
   art: string        // GameEmblem key
@@ -30,6 +35,10 @@ export const MODES: GameMode[] = [
   { id: 'ludo_4p', game: 'ludo', nameKey: 'home.4player', players: 4, entryMinor: toMinor(10), prizeMinor: toMinor(34), theme: 'violet', art: 'ludo4p', tag: 'tournament', open: 2, desc: { bn: '৩ জনকে হারান, বড় জিতুন', en: 'Beat 3 players, win big' } },
   { id: 'ludo_quick', game: 'ludo', nameKey: 'home.quickPlay', players: 2, entryMinor: toMinor(5), prizeMinor: toMinor(9), theme: 'orange', art: 'ludoquick', tag: 'instant', open: 8, desc: { bn: 'তাৎক্ষণিক অনলাইন ম্যাচ', en: 'Instant online match' } },
   { id: 'ludo_practice', game: 'ludo', nameKey: 'home.practice', players: 2, entryMinor: 0, prizeMinor: 0, practice: true, theme: 'teal', art: 'ludopractice', tag: 'free', desc: { bn: 'ফ্রি — দক্ষতা বাড়ান', en: 'Free, sharpen your skills' } },
+  // A free 4-player board. Added because every 4p mode above is paid, and a paid
+  // mode is only playable from a real table - so before this there was no way to
+  // play the 4-player engine at all without two opponents and money.
+  { id: 'ludo_4p_practice', game: 'ludo', nameKey: 'home.practice4p', players: 4, entryMinor: 0, prizeMinor: 0, practice: true, theme: 'teal', art: 'ludo4p', tag: 'free', desc: { bn: 'ফ্রি ৪ প্লেয়ার — বটের সাথে', en: 'Free 4-player vs bots' } },
   // ---- Chess (Daba) ----
   { id: 'chess_1v1', game: 'chess', nameKey: 'home.chess1v1', players: 2, entryMinor: toMinor(20), prizeMinor: toMinor(36), clock: '5+3', theme: 'violet', art: 'chess1v1', tag: 'tournament', open: 5, desc: { bn: 'আসল ক্যাশ দাবা — চেকমেট!', en: 'Real cash chess — checkmate!' } },
   { id: 'chess_practice', game: 'chess', nameKey: 'home.chessPractice', players: 2, entryMinor: 0, prizeMinor: 0, clock: '10+0', practice: true, theme: 'teal', art: 'chesspractice', tag: 'free', desc: { bn: 'বটের সাথে ফ্রি খেলুন', en: 'Play the computer for free' } },
@@ -41,7 +50,62 @@ export const MODES: GameMode[] = [
   { id: 'dice_practice', game: 'dice', nameKey: 'home.dicePractice', players: 2, entryMinor: 0, prizeMinor: 0, practice: true, theme: 'teal', art: 'diceduel', tag: 'free', desc: { bn: 'ফ্রি — বটের সাথে গড়ান', en: 'Free, roll against the bot' } },
 ]
 
-export const modeById = (id: string) => MODES.find((m) => m.id === id)
+// Modes created in the admin panel. This overlay is what finally makes them
+// visible: every mode the app ever showed came from MODES above, and nothing read
+// match_modes, so a mode created in the panel was invisible to players while
+// start_live_match and settle_match still used its real entry and prize from the
+// database. Two sources of truth that disagreed.
+let overlay: GameMode[] = []
+
+/** Built-ins plus anything the admin has created. */
+export const allModes = (): GameMode[] => [...MODES, ...overlay]
+
+/**
+ * Replace the overlay with what the database currently holds.
+ *
+ * Called on every load. A mode that disappears from the database disappears from
+ * the app too - the alternative, merging only in new rows, would leave a deleted
+ * or deactivated mode playable forever on a phone that had loaded the old list.
+ */
+export function applyDbModes(rows: Partial<GameMode>[]) {
+  overlay = rows.filter((r) => r && typeof r.id === 'string' && r.id.length > 0).map((r) => ({
+    id: r.id!,
+    game: (r.game ?? 'ludo') as GameKey,
+    nameKey: r.nameKey ?? '',
+    nameBn: r.nameBn,
+    nameEn: r.nameEn,
+    players: r.players ?? 2,
+    entryMinor: r.entryMinor ?? 0,
+    prizeMinor: r.prizeMinor ?? 0,
+    clock: r.clock,
+    desc: r.desc ?? { bn: '', en: '' },
+    practice: r.practice ?? (r.entryMinor ?? 0) === 0,
+    theme: (r.theme ?? 'blue') as TileTheme,
+    art: r.art ?? 'ludo1v1',
+    tag: (r.tag ?? 'instant') as ModeTag,
+    open: r.open ?? 0,
+    backgroundImage: r.backgroundImage,
+    thumbnailImage: r.thumbnailImage,
+  }))
+}
+
+// Overlaid first, so a database row wins over the hardcoded row of the same id.
+// That is the case that mattered: editing an entry price in the admin has to change
+// what is charged, and settle_match already reads the database figure.
+export const modeById = (id: string) => overlay.find((m) => m.id === id) ?? MODES.find((m) => m.id === id)
+
+/**
+ * The player's name for a mode.
+ *
+ * A built-in resolves through its i18n key; a created mode has no key at all and
+ * falls back to the text the admin typed. Returning the bare id for a created mode
+ * would put `ludo_night_2x` on the tile, which is what happened before this existed
+ * for every mode the admin made.
+ */
+export function modeName(m: GameMode, t: (k: string) => string, bn = true): string {
+  if (m.nameKey) return t(m.nameKey)
+  return (bn ? m.nameBn : m.nameEn) || m.nameBn || m.nameEn || m.id
+}
 
 export const GAME_META: Record<GameKey, { nameKey: string; icon: 'ludo' | 'chess' | 'guti' | 'dice' }> = {
   ludo: { nameKey: 'home.ludo', icon: 'ludo' },

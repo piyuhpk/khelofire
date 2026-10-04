@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+﻿import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, cleanup, act } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router-dom'
 import type { Outcome } from '../src/lib/store'
@@ -8,7 +8,7 @@ import type { Outcome } from '../src/lib/store'
 const settle = vi.fn<(r: { game: string; modeId: string; outcome: Outcome }) => void>()
 vi.mock('../src/lib/store', () => ({
   useStore: (sel: (s: Record<string, unknown>) => unknown) =>
-    sel({ settle: (...a: Parameters<typeof settle>) => settle(...a), username: 'Tester', avatar: '😀' }),
+    sel({ settle: (...a: Parameters<typeof settle>) => settle(...a), username: 'Tester', avatar: 'ðŸ˜€' }),
 }))
 vi.mock('../src/i18n', () => ({
   useT: () => (k: string) => k,
@@ -117,7 +117,7 @@ describe('Ludo turn machinery', () => {
   })
 
   it('settles a four player match exactly once too', async () => {
-    await playToResult('ludo_4p')
+    await playToResult('ludo_4p_practice')
     expect(DONE()).toBe(true)
     expect(settle).toHaveBeenCalledTimes(1)
   })

@@ -25,6 +25,7 @@
  * balance in the database would be someone else's money.
  */
 
+import { applyDbModes, type GameMode } from './catalog'
 import { supabase, hasSupabase } from './supabase'
 
 export interface SeatInfo {
@@ -203,6 +204,10 @@ export interface LiveGameState {
     rolled: boolean
     sixes: number
     winner: number | null
+    /** Which engine seats are actually in this match: [0,2] for 1v1, [0,1,2,3] for 4p.
+     *  Not derived from token count - the board always carries four arrays, so
+     *  assuming four players drew three opponents onto a two-player table. */
+    players?: number[]
   }
   turn_seat: number
   winner_seat: number | null
@@ -259,10 +264,89 @@ export const readState = (matchId: string): Promise<LiveGameState> => sendAction
  * the match really is 'finished' with a recorded winner, so this cannot be used
  * to settle a match in progress.
  */
+/**
+ * Load the mode catalogue from Postgres into the client overlay.
+ *
+ * Returns the number of modes so a caller can tell "no modes configured" from
+ * "Supabase is not configured" - the two need different answers from an admin.
+ */
+export async function loadDbModes(): Promise<number> {
+  requireSupabase()
+  const { data, error } = await supabase!.rpc('list_match_modes')
+  // Deliberately not thrown. Without the database the built-in catalogue is still
+  // correct and the app is fully usable, so a failure here is a warning, not an
+  // error - the same reasoning as every other optional-server read in this file.
+  if (error) return 0
+  const rows = (data ?? []) as Record<string, unknown>[]
+  applyDbModes(rows.map((r) => ({
+    id: r.id as string,
+    game: r.game as GameMode['game'],
+    nameBn: (r.name_bn as string) || undefined,
+    nameEn: (r.name_en as string) || undefined,
+    players: Number(r.max_players) || 2,
+    entryMinor: Number(r.entry_minor) || 0,
+    prizeMinor: Number(r.prize_minor) || 0,
+    clock: (r.clock as string) || undefined,
+    desc: { bn: (r.desc_bn as string) || '', en: (r.desc_en as string) || '' },
+    theme: (r.theme as GameMode['theme']) ?? 'blue',
+    art: (r.art as string) || 'ludo1v1',
+    tag: (r.tag as GameMode['tag']) ?? 'instant',
+    open: Number(r.open_count) || 0,
+  })))
+  return rows.length
+}
+
+/** Save or edit a mode. Staff-only on the server; the panel never decides that. */
+export async function saveMode(m: {
+  id: string; game: string; label: string; entryMinor: number; prizeMinor: number
+  players: number; nameBn?: string; nameEn?: string; descBn?: string; descEn?: string
+  clock?: string; theme?: string; art?: string; tag?: string
+}): Promise<void> {
+  requireSupabase()
+  const { error } = await supabase!.rpc('upsert_match_mode', {
+    p_id: m.id, p_game: m.game, p_label: m.label,
+    p_entry_minor: m.entryMinor, p_prize_minor: m.prizeMinor, p_max_players: m.players,
+    p_name_bn: m.nameBn ?? null, p_name_en: m.nameEn ?? null,
+    p_desc_bn: m.descBn ?? null, p_desc_en: m.descEn ?? null,
+    p_clock: m.clock ?? null,
+    p_theme: m.theme ?? 'blue', p_art: m.art ?? 'ludo1v1', p_tag: m.tag ?? 'instant',
+    p_active: true,
+  })
+  if (error) throw new LiveError(error.message, 'save_failed')
+}
+
 export async function settleMatch(matchId: string, outcome: 'win' | 'loss'): Promise<void> {
   requireSupabase()
   const { error } = await supabase!.rpc('settle_match', { p_match_id: matchId, p_outcome: outcome })
   if (error) throw new LiveError(error.message, 'settle_failed')
+}
+
+/**
+ * Give up a real match.
+ *
+ * This is two steps and both are required. resign_live_match decides the match in
+ * the database - it is the only thing that can turn a live board into a decided one
+ * without playing it out. settle_match then records the loss and is what actually
+ * refuses to run on an unfinished match. Calling settle_match on its own, as the
+ * resign button used to, threw 'match is live, not finished'; calling resign on its
+ * own would decide the match but never record the result.
+ */
+export async function resignLiveMatch(matchId: string): Promise<{ forfeit: boolean; status: string }> {
+  requireSupabase()
+  const { data, error } = await supabase!.rpc('resign_live_match', { p_match_id: matchId })
+  if (error) throw new LiveError(error.message, 'resign_failed')
+  const row = (data ?? {}) as { status?: string; forfeit_by?: number | null }
+  const status = row.status ?? 'unknown'
+  // Only a live match produces a forfeit. Leaving a waiting table frees the seat
+  // and there is nothing to settle, because nothing was ever charged.
+  const forfeit = status === 'finished'
+  if (forfeit) {
+    const { error: se } = await supabase!.rpc('settle_match', { p_match_id: matchId, p_outcome: 'loss' })
+    // A settle failure here still means the match is decided; the reaper and the
+    // settlement conflict rule cover the gap, so report it rather than hiding it.
+    if (se) throw new LiveError(se.message, 'settle_failed')
+  }
+  return { forfeit, status }
 }
 
 function requireSupabase() {

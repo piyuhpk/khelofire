@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { ChevronLeft, Wrench, Megaphone, Send, Users, Search, Ban, CheckCircle2, Trash2, Plus, Minus, Image, Gift, CreditCard, LifeBuoy, SlidersHorizontal, Gamepad2, LayoutDashboard, ImageIcon, Upload, X, Shield, Activity, Key, UserPlus, UserCheck, LogOut, Bell, FileText, Banknote } from 'lucide-react'
-import { MODES } from '../../lib/catalog'
+import { MODES, allModes, modeName, GAME_ORDER, type GameMode } from '../../lib/catalog'
 import { fmt, toMinor } from '../../lib/money'
+import { saveMode, loadDbModes } from '../../lib/live'
 import { GATEWAYS, isUsable } from '../../lib/payments/providers'
 import { useStore, type AdminUser, type CategoryImageConfig, type AdminRole, type AdminActivity, type AdminSettings, fileToBase64, validateImageFile } from '../../lib/store'
 import { supabase, hasSupabase } from '../../lib/supabase'
+import { useT, useI18n } from '../../i18n'
 import { useToast, Sheet } from '../../ui/components'
 import { changePassword, changeEmail, currentEmail } from '../../lib/auth'
 
@@ -23,6 +25,27 @@ const TABS = [
 // provider. Enabling one would take a deposit and credit nothing.
 const blockedGatewayReason = () =>
   'Automatic settlement is not switchable yet: no provider has buildSession() in payment-checkout or a working verify() in payment-webhook, so there is nothing that can take a BDT payment and prove it arrived. Merchant credentials alone would not help. Manual above is fully working.'
+
+// ---------- mode editor ----------
+interface ModeForm {
+  id: string
+  game: GameMode['game']
+  players: number
+  /** kept as typed text: an empty field must stay empty, not become 0 (= free) */
+  entryTaka: string
+  prizeTaka: string
+  nameBn?: string
+  nameEn?: string
+  clock?: string
+  theme: GameMode['theme']
+  art: string
+  tag: GameMode['tag']
+}
+
+const blankMode = (): ModeForm => ({
+  id: '', game: 'ludo', players: 2, entryTaka: '20', prizeTaka: '36',
+  nameBn: '', nameEn: '', theme: 'blue', art: 'ludo1v1', tag: 'instant',
+})
 
 // ---------- staff sign-in ----------
 // This used to be a single "PIN" field compared against a value stored in the
@@ -70,6 +93,8 @@ function Gate({ onOk }: { onOk: () => void }) {
 export default function Admin() {
   const nav = useNavigate()
   const toast = useToast()
+  const t = useT()
+  const { lang } = useI18n()
   const isAdmin = useStore((s) => s.isAdmin)
   const [unlocked, setUnlocked] = useState(isAdmin)
   const [tab, setTab] = useState<typeof TABS[number]['id']>('Dashboard')
@@ -194,6 +219,37 @@ export default function Admin() {
   const [bnUrl, setBnUrl] = useState('')  // images tab state
 
   const [modeImgId, setModeImgId] = useState('')
+  // Mode editor. Held as a form of strings, because every number field here is
+  // typed into and a numeric input that turns "" into 0 makes an empty field
+  // silently mean "free". Converted once, on save.
+  const [modeForm, setModeForm] = useState<ModeForm | null>(null)
+  const [modeBusy, setModeBusy] = useState(false)
+
+  const saveModeForm = async () => {
+    if (!modeForm) return
+    setModeBusy(true)
+    try {
+      await saveMode({
+        id: modeForm.id.trim(),
+        game: modeForm.game,
+        label: modeForm.id.trim(),
+        entryMinor: toMinor(Number(modeForm.entryTaka) || 0),
+        prizeMinor: toMinor(Number(modeForm.prizeTaka) || 0),
+        players: modeForm.players,
+        nameBn: modeForm.nameBn, nameEn: modeForm.nameEn,
+        clock: modeForm.clock,
+        theme: modeForm.theme, art: modeForm.art, tag: modeForm.tag,
+      })
+      // Reload rather than patch the local list: the server is the authority for
+      // entry and prize, so showing numbers this client invented would be a lie
+      // about what a player will be charged.
+      await loadDbModes()
+      setModeForm(null)
+      toast('Mode saved — it is live for players now', 'ok')
+    } catch (e) {
+      toast(e instanceof Error ? e.message : 'Could not save the mode', 'err')
+    } finally { setModeBusy(false) }
+  }
   const [modeBgUrl, setModeBgUrl] = useState('')
   const [modeThumbUrl, setModeThumbUrl] = useState('')
   // roles tab state
@@ -423,15 +479,105 @@ export default function Admin() {
       {/* ---- Games ---- */}
       {tab === 'Games' && (
         <div className="space-y-2">
-          {MODES.map((m) => (
-            <div key={m.id} className="card flex items-center justify-between p-3">
-              <div><div className="text-sm font-bold">{m.game} · {m.id}</div><div className="text-[11px] text-muted">{m.players}P · entry {fmt(m.entryMinor)} · prize {fmt(m.prizeMinor)}{m.clock ? ` · ${m.clock}` : ''}</div></div>
-              <button onClick={() => { setTab('Images'); setModeImgId(m.id); const img = gameModeImages[m.id]; setModeBgUrl(img?.backgroundImage || ''); setModeThumbUrl(img?.thumbnailImage || '') }} className="chip text-xs font-bold text-gold" style={{ background: 'rgba(255,212,102,.12)' }}>Edit</button>
+          <p className="text-[11px] leading-snug text-muted">
+            Every mode here is a row in the database, not a list baked into the app.
+            Entry and prize are what <span className="tnum">settle_match</span> actually
+            pays from, so changing a number here changes what is charged. Games with no
+            database row are the built-in defaults and can be edited the same way -
+            editing one creates its row.
+          </p>
+          {allModes().map((m) => (
+            <div key={m.id} className="card flex items-center justify-between gap-2 p-3">
+              <div className="min-w-0">
+                <div className="truncate text-sm font-bold">{modeName(m, t as any, lang === 'bn')}</div>
+                <div className="text-[11px] text-muted">{m.game} · {m.players}P · entry {fmt(m.entryMinor)} · prize {fmt(m.prizeMinor)}{m.clock ? ` · ${m.clock}` : ''}</div>
+              </div>
+              <div className="flex shrink-0 gap-1.5">
+                <button onClick={() => setModeForm({
+                  id: m.id, game: m.game, players: m.players,
+                  // minor units back to a taka string, so editing shows what the
+                  // player is actually charged rather than 2000
+                  entryTaka: String(Math.round(m.entryMinor / 100)),
+                  prizeTaka: String(Math.round(m.prizeMinor / 100)),
+                  nameBn: m.nameBn, nameEn: m.nameEn, clock: m.clock,
+                  theme: m.theme, art: m.art, tag: m.tag,
+                })} className="chip text-xs font-bold text-gold" style={{ background: 'rgba(255,212,102,.12)' }}>Edit</button>
+                <button onClick={() => { setTab('Images'); setModeImgId(m.id); const img = gameModeImages[m.id]; setModeBgUrl(img?.backgroundImage || ''); setModeThumbUrl(img?.thumbnailImage || '') }} className="chip text-xs">Art</button>
+              </div>
             </div>
           ))}
-          <button onClick={() => toast('Custom mode creation needs a backend — planned next', 'info')} className="btn-primary mt-1 w-full"><Plus className="h-4 w-4" strokeWidth={2.6} />Create game mode</button>
+          <button onClick={() => setModeForm(blankMode())} className="btn-primary mt-1 w-full"><Plus className="h-4 w-4" strokeWidth={2.6} />Create game mode</button>
         </div>
       )}
+
+      {/* Create / edit a mode. Writes to match_modes through upsert_match_mode and
+          then reloads the catalogue, so what the admin sees afterwards is what a
+          player sees - rather than a success toast over a list that did not change. */}
+      <Sheet open={!!modeForm} onClose={() => { setModeForm(null); setModeBusy(false) }}>
+        {modeForm && (
+          <div className="space-y-2.5">
+            <div className="text-sm font-bold">{allModes().some((x) => x.id === modeForm.id) ? 'Edit mode' : 'New game mode'}</div>
+            <div>
+              <label className="label">Mode id (URL-safe)</label>
+              <input className="input" value={modeForm.id} placeholder="ludo_night_2x"
+                onChange={(e) => setModeForm({ ...modeForm, id: e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, '') })} />
+              <p className="mt-1 text-[11px] text-muted">Lowercase letters, digits and underscore. This becomes the play URL.</p>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="label">Game</label>
+                <select className="input" value={modeForm.game} onChange={(e) => setModeForm({ ...modeForm, game: e.target.value as GameMode['game'] })}>
+                  {GAME_ORDER.map((g) => <option key={g} value={g}>{g}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Seats</label>
+                <select className="input" value={modeForm.players} onChange={(e) => setModeForm({ ...modeForm, players: Number(e.target.value) })}>
+                  <option value={2}>2</option><option value={4}>4</option>
+                </select>
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <label className="label">Entry</label>
+                <input className="input tnum" inputMode="numeric" value={modeForm.entryTaka}
+                  onChange={(e) => setModeForm({ ...modeForm, entryTaka: e.target.value.replace(/[^\d.]/g, '') })} />
+              </div>
+              <div>
+                <label className="label">Prize</label>
+                <input className="input tnum" inputMode="numeric" value={modeForm.prizeTaka}
+                  onChange={(e) => setModeForm({ ...modeForm, prizeTaka: e.target.value.replace(/[^\d.]/g, '') })} />
+                {modeForm.prizeTaka !== '' && modeForm.entryTaka !== '' && Number(modeForm.prizeTaka) < Number(modeForm.entryTaka) && (
+                  <p className="mt-1 text-[11px] text-amber-400">Prize must be at least the entry, or the match takes money off every player.</p>
+                )}
+              </div>
+            </div>
+            <div>
+              <label className="label">Name (Bangla)</label>
+              <input className="input" value={modeForm.nameBn ?? ''} placeholder="রাতের লুডু ২vs২"
+                onChange={(e) => setModeForm({ ...modeForm, nameBn: e.target.value })} />
+            </div>
+            <div>
+              <label className="label">Name (English)</label>
+              <input className="input" value={modeForm.nameEn ?? ''} placeholder="Night Ludo 2v2"
+                onChange={(e) => setModeForm({ ...modeForm, nameEn: e.target.value })} />
+            </div>
+            <div>
+              <label className="label">Badge</label>
+              <select className="input" value={modeForm.tag} onChange={(e) => setModeForm({ ...modeForm, tag: e.target.value as GameMode['tag'] })}>
+                <option value="instant">instant</option><option value="tournament">tournament</option><option value="free">free</option>
+              </select>
+            </div>
+            <button disabled={modeBusy || !modeForm.id} onClick={() => void saveModeForm()} className="btn-primary w-full disabled:opacity-50">
+              {modeBusy ? 'Saving…' : 'Save mode'}
+            </button>
+            <p className="text-[11px] leading-snug text-muted">
+              A free mode (entry 0) stays playable against the bot. Any mode with an entry
+              is only playable from a live table, so it needs two real players.
+            </p>
+          </div>
+        )}
+      </Sheet>
 
       {/* ---- Announce ---- */}
       {tab === 'Announce' && (

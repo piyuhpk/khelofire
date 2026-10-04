@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Trophy, Dice5, Crown, Grid3x3, Dices } from 'lucide-react'
 import { useT, useI18n } from '../../i18n'
-import { MODES, GAME_ORDER, GAME_META, type GameMode } from '../../lib/catalog'
+import { allModes, modeName, GAME_ORDER, GAME_META, type GameMode } from '../../lib/catalog'
 import type { GameKey } from '../../lib/store'
 import { fmt } from '../../lib/money'
 import { GameEmblem, TILE_THEME } from '../home/GameArt'
@@ -41,7 +41,7 @@ function GameTile({ m }: { m: GameMode }) {
       <div className="absolute inset-x-0 bottom-0 z-10 p-3 pt-8" style={{ background: 'linear-gradient(to top, rgba(0,0,0,.72), rgba(0,0,0,.28) 55%, transparent)' }}>
         <div className="flex items-end justify-between gap-1">
           <div className="min-w-0">
-            <div className="font-display text-[15px] font-extrabold leading-tight text-white">{t(m.nameKey as any)}</div>
+            <div className="font-display text-[15px] font-extrabold leading-tight text-white">{modeName(m, t as any, lang === 'bn')}</div>
             <div className="text-[11px] text-white/75 leading-tight truncate">{lang === 'bn' ? m.desc.bn : m.desc.en}</div>
           </div>
           <ChevronRight className="h-4 w-4 shrink-0 text-white/70" strokeWidth={2.5} />
@@ -61,7 +61,7 @@ function GameSection({ game }: { game: GameKey }) {
   const t = useT()
   const nav = useNavigate()
   const chessEnabled = useStore((s) => s.siteConfig.chessEnabled)
-  const modes = MODES.filter((m) => m.game === game && (m.game !== 'chess' || chessEnabled))
+  const modes = allModes().filter((m) => m.game === game && (m.game !== 'chess' || chessEnabled))
   const Icon = GAME_ICON[game]
   return (
     <div className="px-4 pt-6">
