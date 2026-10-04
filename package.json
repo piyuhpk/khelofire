@@ -18,7 +18,8 @@
     "turn:check": "node scripts/turn-check.mjs",
     "turn:probe": "node scripts/turn-browser-probe.mjs",
     "auth:config": "node scripts/auth-config.mjs",
-    "sha1": "node scripts/print-sha1.mjs"
+    "sha1": "node scripts/print-sha1.mjs",
+    "turn:fetch": "node scripts/fetch-turn-credentials.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",
