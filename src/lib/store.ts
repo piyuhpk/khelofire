@@ -217,7 +217,6 @@ interface DemoState {
   unlockEntry: (minor: number, note: string) => void
   withdraw: (taka: number, method?: string, account?: string) => Promise<boolean>
   setWithdrawalStatus: (id: string, status: Withdrawal['status']) => Promise<void>
-  lockEntry: (minor: number, note: string) => boolean
   settle: (rec: Omit<MatchRecord, 'id' | 'ts'>) => void
   markNotifsRead: () => void
   reset: () => void
@@ -637,18 +636,6 @@ export const useStore = create<DemoState>()(
             ledger: [{ id: txn(), type: 'unlock', amountMinor: minor, balanceAfter: available, status: 'refunded', ts: Date.now(), note }, ...s.ledger],
           }
         })
-      },
-
-      // Atomic-ish: move available -> locked, write entry_debit + lock ledger
-      lockEntry: (minor, note) => {
-        if (minor > get().availableMinor) return false
-        const balanceAfter = get().availableMinor - minor
-        set((s) => ({
-          availableMinor: balanceAfter,
-          lockedMinor: s.lockedMinor + minor,
-          ledger: [{ id: txn(), type: 'entry_debit', amountMinor: -minor, balanceAfter, status: 'completed', ts: Date.now(), note }, ...s.ledger],
-        }))
-        return true
       },
 
       // Settle a finished match: unlock entry, apply prize/refund, record history + stats.
