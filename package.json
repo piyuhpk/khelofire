@@ -14,7 +14,10 @@
     "check:sql": "esbuild scripts/check-sql.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/check-sql.mjs --log-level=error && node node_modules/.tmp/check-sql.mjs",
     "typecheck": "tsc -b --force",
     "apk": "node scripts/build-apk.mjs user",
-    "apk:admin": "node scripts/build-apk.mjs admin"
+    "apk:admin": "node scripts/build-apk.mjs admin",
+    "turn:check": "node scripts/turn-check.mjs",
+    "turn:probe": "node scripts/turn-browser-probe.mjs",
+    "auth:config": "node scripts/auth-config.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",

@@ -1,0 +1,73 @@
+<!doctype html>
+<meta charset="utf-8" />
+<title>turn probe</title>
+<body>
+<pre id="out">running</pre>
+<script type="module">
+/**
+ * Gather ICE candidates for the configured relay using the browser's own WebRTC.
+ *
+ * A hand-rolled STUN client can agree with a server about a reply while a browser
+ * still cannot build a connection, because what a call needs is a relayed candidate
+ * in the candidate list, not merely a reply that decoded. Android WebView runs the same
+ * Chromium ICE stack as this page, so if no relay candidate shows up here, voice chat
+ * will not work on the phone either - and that is a different failure from "the
+ * credentials are wrong", so it is worth separating before changing any config.
+ *
+ * The relay list is injected by turn-browser-probe.mjs as ICE_SERVERS below.
+ */
+const ICE_SERVERS = window.__ICE_SERVERS ?? []
+
+window.__probe = (async () => {
+  const cands = []
+  const errors = []
+  const pc = new RTCPeerConnection({
+    iceServers: [
+      { urls: 'stun:stun.l.google.com:19302' },
+      ...ICE_SERVERS,
+    ],
+  })
+
+  pc.onicecandidate = (e) => {
+    if (!e.candidate) return
+    cands.push({
+      type: e.candidate.type,
+      protocol: e.candidate.protocol,
+      relayProtocol: e.candidate.relayProtocol ?? null,
+    })
+  }
+  pc.onicegatheringerror = (e) => errors.push(String(e.errorCode ?? e.errorText ?? e))
+  pc.oniceconnectionstatechange = () => {
+    if (pc.iceConnectionState === 'failed') errors.push('iceConnectionState=failed')
+  }
+
+  // A data channel plus an audio transceiver is enough to make the stack gather; no
+  // remote peer is needed to see whether a relay candidate is obtainable.
+  pc.createDataChannel('probe')
+  pc.addTransceiver('audio', { direction: 'sendrecv' })
+  await pc.setLocalDescription(await pc.createOffer())
+
+  const done = await new Promise((resolve) => {
+    const timer = setTimeout(() => resolve('timeout'), 15000)
+    pc.onicegatheringstatechange = () => {
+      if (pc.iceGatheringState === 'complete') {
+        clearTimeout(timer)
+        resolve('complete')
+      }
+    }
+  })
+
+  const relay = cands.filter((c) => c.type === 'relay')
+  const result = {
+    done,
+    gathering: pc.iceGatheringState,
+    total: cands.length,
+    byType: cands.reduce((acc, c) => ({ ...acc, [c.type]: (acc[c.type] ?? 0) + 1 }), {}),
+    relay,
+    errors,
+  }
+  document.getElementById('out').textContent = JSON.stringify(result, null, 2)
+  pc.close()
+  return result
+})()
+</script>
