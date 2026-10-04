@@ -32,6 +32,10 @@ export default function LiveTables() {
   const [table, setTable] = useState<LiveMatch | null>(null)
   const [starting, setStarting] = useState(false)
   const [tables, setTables] = useState<OpenTable[]>([])
+  // null = the listing could not be asked for. Distinct from an empty list, which means
+  // the server was asked and nobody is waiting. Collapsing the two told a player on a
+  // busy server that no one was playing.
+  const [listing, setListing] = useState<boolean | null>(true)
 
   const bn = lang === 'bn'
 
@@ -42,7 +46,9 @@ export default function LiveTables() {
     let alive = true
     const poll = async () => {
       const rows = await listOpenTables()
-      if (alive) setTables(rows)
+      if (!alive) return
+      setListing(rows !== null)
+      if (rows) setTables(rows)
     }
     void poll()
     const id = setInterval(() => void poll(), 8000)
@@ -248,7 +254,20 @@ export default function LiveTables() {
 
         {/* Open tables first. This used to be create-a-table and a code box, which
             works only for two people standing together - a player opening the app alone
-            had no way to find anyone, so they created a table, waited, and left. */}
+            had no way to find anyone, so they created a table, waited, and left.
+
+            The three states are kept apart on purpose. Tables listed, no tables listed,
+            and could-not-ask are three different things, and showing the last two the
+            same way tells a player the lobby is deserted when it may not even exist on
+            the server yet. */}
+        {listing === false && (
+          <div className="mb-4 rounded-2xl p-3 text-xs text-muted"
+            style={{ background: 'var(--surface-2)', border: '1px solid var(--line)' }}>
+            {bn
+              ? 'খোলা টেবিলের তালিকা এখনো চালু নেই। আপনি নিজে টেবিল খুলে কোড শেয়ার করতে পারেন।'
+              : 'Listing open tables is not available yet. You can still create a table and share the code.'}
+          </div>
+        )}
         {tables.length > 0 && (
           <>
             <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted">

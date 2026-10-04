@@ -167,14 +167,20 @@ export interface OpenTable {
  * the app alone has no way to find anyone, so every one of them creates a table, waits,
  * and leaves - and the lobby stays empty because it always was.
  *
- * Deliberately no error when the list is empty or the call fails: an unreachable lobby
- * list means "nobody to show", not "something went wrong". An error banner here would
- * tell a player their app is broken when the honest answer is that nobody is playing.
+ * But a missing list and an empty list are different things, and this used to show both
+ * as the same empty list.
+ *
+ * If list_open_tables has not been applied to the database yet, every call fails and the
+ * player is shown no tables - which reads as "nobody is playing", on a server where
+ * tables were being created all day. A player who opens the lobby, sees nothing, and
+ * concludes the app is broken is a worse outcome than being told the listing is not
+ * available yet. So the two are reported apart: null means "could not ask", [] means
+ * "asked, and nobody is waiting".
  */
-export async function listOpenTables(game?: string): Promise<OpenTable[]> {
+export async function listOpenTables(game?: string): Promise<OpenTable[] | null> {
   if (!hasSupabase) return []
   const { data, error } = await supabase!.rpc('list_open_tables', { p_game: game ?? null })
-  if (error) return []
+  if (error) return null
   return (data ?? []) as OpenTable[]
 }
 
