@@ -16,7 +16,15 @@ export default function Lobby() {
   const ready = useReady(500)
   const gk = game as GameKey
   const chessEnabled = useStore((s) => s.siteConfig.chessEnabled)
-  const modes = allModes().filter((m) => m.game === gk && !m.practice && canPlayLive(m) && (m.game !== 'chess' || chessEnabled))
+  // canPlayLive() already lets practice through - a bot game needs no server engine, so
+  // the "only Ludo is really live" rule does not apply to it. The extra !m.practice
+  // filter that used to sit in front of it is what made the free games unreachable:
+  // ludo_practice and ludo_4p_practice were in the catalogue the whole time and
+  // nothing in the app could show them. A player asking for a free Ludo game had no
+  // way to start one, and the only route to a practice mode was the fallback offered
+  // on a *blocked* game's join screen - which Ludo never triggers, because Ludo is the
+  // one game that is not blocked. So the fallback could not show it either.
+  const modes = allModes().filter((m) => m.game === gk && canPlayLive(m) && (m.game !== 'chess' || chessEnabled))
   const Icon = GAME_ICON[gk] ?? Dice5
   const title = GAME_META[gk] ? t(GAME_META[gk].nameKey as any) : game
 

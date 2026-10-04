@@ -89,7 +89,16 @@ export default function LiveTables() {
       const m = await createMatch(pickMode())
       setTable(m)
       setCode(m.code)
-      toast(bn ? 'টেবিল তৈরি — কোড শেয়ার করুন' : 'Table created — share the code', 'ok')
+      // m.existing means the server handed back the table they already had open rather
+      // than making a second one. Say so, because "Table created" would be a lie - they
+      // did not create it just now - and silently swallowing it would leave them
+      // wondering why the code is one they have seen before.
+      toast(
+        m.existing
+          ? (bn ? 'আপনার আগের টেবিলটিই খোলা আছে' : 'You already have this table open')
+          : (bn ? 'টেবিল তৈরি — কোড শেয়ার করুন' : 'Table created — share the code'),
+        'ok',
+      )
     } catch (e) {
       toast(errText(e, bn), 'err')
     } finally { setBusy(null) }

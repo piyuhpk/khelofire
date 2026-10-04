@@ -44,12 +44,42 @@ export interface LiveMatch {
   seats: SeatInfo[]
   /** engine seat -> user, for rendering who owns which colour */
   seatCount: number
+  /** create only: the server returned the caller's existing table instead of a new one */
+  existing?: boolean
 }
 
 /** 5-8 uppercase letters/digits. The database enforces the same shape. */
 const CODE_RE = /^[A-Z0-9]{5,8}$/
 
 export const isValidCode = (c: string): boolean => CODE_RE.test(c.trim().toUpperCase())
+
+/** the refusal create_live_match still raises on a database without the newer version */
+const ALREADY_OPEN = /already have a .* table open/i
+
+/**
+ * The caller's own waiting or running table in one mode, or null.
+ *
+ * Readable because live_matches_read lets a player select the tables they host or sit
+ * in. This is the player's own row and nobody else's, which is why it can be read from
+ * the client at all.
+ */
+async function findMyOpenTable(modeId: string): Promise<LiveMatch | null> {
+  const { data } = await supabase!
+    .from('live_matches')
+    .select('id, code, mode, game, status, seat_count')
+    .eq('mode', modeId)
+    .in('status', ['waiting', 'live'])
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  if (!data) return null
+
+  const full = await fetchMatch(data.id)
+  if (full) return full
+  // The recovery read succeeded but the full read did not. Rather than invent a table,
+  // say so: a half-built table shown to a player is worse than a clear failure.
+  throw new LiveError('your table could not be read back', 'fetch_failed')
+}
 
 export class LiveError extends Error {
   // plain field, not a constructor parameter property: this project compiles
@@ -80,9 +110,26 @@ export async function createMatch(modeId: string, code?: string): Promise<LiveMa
   if (!isValidCode(room)) throw new LiveError('Room code must be 5-8 letters or digits', 'bad_code')
 
   const { data, error } = await supabase!.rpc('create_live_match', { p_mode: modeId, p_code: room })
+
+  // "You already have a table open in this mode" used to be the end of it.
+  //
+  // Nothing had gone wrong: the player opened a table, wandered off the Create button
+  // and came back to it. But the server could only answer with a refusal, and a
+  // refusal carries no table - so the app could not put them back where they were, and
+  // they were left needing the one thing the open-table work exists to stop needing:
+  // the code, which was only ever shown once.
+  //
+  // The server now returns that table instead of raising. This branch is what keeps the
+  // fix working on a database where that change has not been applied yet: the row
+  // policy lets a player read their own table, so the recovery can be done from here.
+  // It disappears on its own once the migration is in place.
+  if (error && ALREADY_OPEN.test(error.message)) {
+    const mine = await findMyOpenTable(modeId)
+    if (mine) return { ...mine, existing: true }
+  }
   if (error) throw new LiveError(error.message, 'create_failed')
 
-  const row = (data ?? {}) as { match_id: string; code: string; seat: number; next_seat: number }
+  const row = (data ?? {}) as { match_id: string; code: string; seat: number; next_seat: number; existing?: boolean }
   return {
     match_id: row.match_id,
     code: row.code,
@@ -91,6 +138,8 @@ export async function createMatch(modeId: string, code?: string): Promise<LiveMa
     status: 'waiting',
     seats: [{ seat: row.seat }],
     seatCount: row.next_seat >= 2 ? 2 : 4,
+    /** the server gave back the table this player already had open, not a new one */
+    existing: row.existing === true,
   }
 }
 

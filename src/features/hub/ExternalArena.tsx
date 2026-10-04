@@ -4,9 +4,28 @@ import { ChevronLeft, Crosshair, Crown, Trophy, Users, Clock } from 'lucide-reac
 import { useI18n } from '../../i18n'
 import { fmt, toMinor } from '../../lib/money'
 import { Sheet } from '../../ui/components'
+import { allModes } from '../../lib/catalog'
 
 type Kind = 'freefire' | 'ludoking'
 interface Match { id: string; title: string; sub: string; prizeMinor: number; entryMinor: number; slots: number; joined: number; when: string; room: string; pass: string }
+
+/** The real Ludo King modes, in catalogue order. See the note on DATA.ludoking. */
+function ludoKingModes(): Match[] {
+  return allModes()
+    .filter((m) => m.game === 'ludo')
+    .map((m) => ({
+      id: m.id,
+      title: `${m.nameKey.split('.').pop()} � ${m.practice ? 'Free' : fmt(m.prizeMinor)}`,
+      sub: m.practice ? 'Play vs bot' : `${m.players}p � winner takes all`,
+      prizeMinor: m.prizeMinor,
+      entryMinor: m.entryMinor,
+      slots: m.players,
+      joined: 1,
+      when: 'Now',
+      room: '',
+      pass: '',
+    }))
+}
 
 const DATA: Record<Kind, { title: string; Icon: typeof Crosshair; accent: string; bg: string; matches: Match[] }> = {
   freefire: {
@@ -18,13 +37,22 @@ const DATA: Record<Kind, { title: string; Icon: typeof Crosshair; accent: string
       { id: 'ff4', title: 'Lone Wolf 1v1', sub: 'Sniper only', prizeMinor: toMinor(300), entryMinor: 0, slots: 2, joined: 1, when: 'Now', room: '', pass: '' },
     ],
   },
-  ludoking: {
+ludoking: {
     title: 'Ludo King', Icon: Crown, accent: '#8B5CFF', bg: 'linear-gradient(160deg,#6d28d9,#2e1065)',
-    matches: [
-      { id: 'lk1', title: 'Classic 1v1 · ৳36', sub: 'Room code · winner takes all', prizeMinor: toMinor(36), entryMinor: toMinor(20), slots: 2, joined: 1, when: 'Now', room: '', pass: '' },
-      { id: 'lk2', title: 'Classic ৳2,000 Event', sub: 'Room code · 2 players', prizeMinor: toMinor(2000), entryMinor: toMinor(1100), slots: 2, joined: 1, when: 'Today 6:00 PM', room: '', pass: '' },
-      { id: 'lk3', title: '4-Player Battle · ৳100', sub: 'Room code · last standing', prizeMinor: toMinor(100), entryMinor: toMinor(30), slots: 4, joined: 2, when: 'Now', room: '', pass: '' },
-    ],
+    // Read from the catalogue instead of typed by hand.
+    //
+    // These rows used to be literals, and they had drifted away from the game: the
+    // "Tk2,000 Event" charged 1100 against a 2000 prize and no such mode exists in the
+    // catalogue at all. Every one of them opened the same "Coming soon" sheet, so the
+    // screen promised three tournaments and could deliver none of them. A hardcoded
+    // prize is a promise about money, and it is the one number a player is entitled to
+    // be able to trust.
+    //
+    // Free practice modes are in here too, deliberately: the bot games are the part of
+    // Ludo King that actually works with no opponent and no server, and leaving them
+    // off this screen meant a player who wanted to just play had to find them
+    // somewhere else or not at all.
+    matches: ludoKingModes(),
   },
 }
 
@@ -100,18 +128,32 @@ export default function ExternalArena({ kind }: { kind: Kind }) {
           <>
             <h3 className="mb-1 font-display text-base font-extrabold">{sel.title}</h3>
             <p className="mb-3 text-xs text-muted">{cfg.title} · {sel.sub}</p>
-            <div className="mb-4 rounded-2xl p-4 text-center" style={{ background: 'var(--bg)' }}>
-              <p className="text-sm font-extrabold">{L('শীঘ্রই আসছে', 'Coming soon')}</p>
-              <p className="mt-2 text-xs text-muted">
-                {L(
-                  'এই টুর্নামেন্ট এখনো চালু নেই। কোনো টাকা কাটা হবে না।',
-                  'This tournament is not running yet. No entry is charged.',
-                )}
-              </p>
-            </div>
-            <button onClick={() => setSel(null)} className="btn-primary w-full">
-              {L('ঠিক আছে', 'OK')}
-            </button>
+            {/* Ludo King rows are real modes, so tapping one goes to that mode - not to a
+                "coming soon" notice. A card that lists a real entry and a real prize and
+                then refuses to play is worse than not listing it. */}
+            {kind === 'ludoking' ? (
+              <button
+                onClick={() => nav(sel.entryMinor === 0 ? `/play/ludo/${sel.id}` : `/join/${sel.id}`)}
+                className="btn-primary w-full"
+              >
+                {sel.entryMinor === 0 ? L('বটের বিরুদ্ধে খেলুন', 'Play vs bot') : L('জয়েন করুন', 'Join match')}
+              </button>
+            ) : (
+              <>
+                <div className="mb-4 rounded-2xl p-4 text-center" style={{ background: 'var(--bg)' }}>
+                  <p className="text-sm font-extrabold">{L('শীঘ্রই আসছে', 'Coming soon')}</p>
+                  <p className="mt-2 text-xs text-muted">
+                    {L(
+                      'এই টুর্নামেন্ট এখনো চালু নেই। কোনো টাকা কাটা হবে না।',
+                      'This tournament is not running yet. No entry is charged.',
+                    )}
+                  </p>
+                </div>
+                <button onClick={() => setSel(null)} className="btn-primary w-full">
+                  {L('ঠিক আছে', 'OK')}
+                </button>
+              </>
+            )}
           </>
         )}
       </Sheet>

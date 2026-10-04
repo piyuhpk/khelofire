@@ -129,10 +129,11 @@ grant execute on function public.p_match_mode_note(text, text) to authenticated;
 create or replace function public.create_live_match(p_mode text, p_code text)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare
-  v_uid  uuid := auth.uid();
-  v_mode public.match_modes%rowtype;
-  v_id   uuid;
-  v_seat int;
+  v_uid   uuid := auth.uid();
+  v_match public.live_matches%rowtype;
+  v_mode  public.match_modes%rowtype;
+  v_id    uuid;
+  v_seat  int;
 begin
   if v_uid is null then raise exception 'not signed in'; end if;
 
@@ -162,11 +163,38 @@ begin
     raise exception 'code % already in use', p_code;
   end if;
 
-  -- one live table per player per mode: stops seat-farming the entry debit
+  -- One live table per player per mode: stops seat-farming the entry debit.
+  --
+  -- This returns the table they already have instead of refusing. The guard itself is
+  -- the point and is unchanged - the player still ends up with exactly one table, so
+  -- there is still nothing to farm. What changed is what the player is told.
+  --
+  -- It used to raise, and the player saw a raw database exception: "you already have a
+  -- ludo table open in ludo_quick". Nothing had gone wrong. They had opened a table,
+  -- walked away from the Create button, and come back to it - the most ordinary thing
+  -- in the world - and the app told them they had made a mistake. Worse, the message
+  -- carried no table, so there was nothing to tap to get back to the table they were
+  -- trying to reach in the first place. They had to know the code, which is exactly
+  -- what the open-table work set out to stop requiring.
+  --
+  -- So hand back the existing row, and let the client put them straight back at it. A
+  -- second table is still impossible; only the error is gone.
   if exists (select 1 from public.live_matches m
              where m.host_id = v_uid and m.mode = p_mode
                and m.status in ('waiting','live')) then
-    raise exception 'you already have a % table open in %', v_mode.game, p_mode;
+    select * into v_match from public.live_matches m
+     where m.host_id = v_uid and m.mode = p_mode
+       and m.status in ('waiting','live')
+     order by created_at desc limit 1;
+
+    select coalesce(max(player_id) + 1, 1) into v_seat
+      from public.live_match_seats where match_id = v_match.id;
+
+    return jsonb_build_object('match_id', v_match.id, 'code', v_match.code,
+                              'seat', 0, 'next_seat', v_seat,
+                              'existing', true,
+                              'entry_minor', v_mode.entry_minor,
+                              'prize_minor', v_mode.prize_minor);
   end if;
 
   insert into public.live_matches (game, mode, code, host_id, seat_count,
