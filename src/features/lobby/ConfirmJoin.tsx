@@ -15,7 +15,6 @@ export default function ConfirmJoin() {
   const nav = useNavigate()
   const toast = useToast()
   const available = useStore((s) => s.availableMinor)
-  const lockEntry = useStore((s) => s.lockEntry)
   const unlockEntry = useStore((s) => s.unlockEntry)
   const [phase, setPhase] = useState<'confirm' | 'matching'>('confirm')
   const [waited, setWaited] = useState(false)
@@ -25,19 +24,35 @@ export default function ConfirmJoin() {
 
   const goBot = () => { if (m) nav(`/play/${m.game}/${m.id}`, { replace: true }) }
 
+  // Structural guard: a paid mode is bounced the moment this screen mounts, so the
+  // code below has no way to hold an entry even if a route change lands here
+  // before the button is ever pressed.
+  useEffect(() => {
+    if (isFree || !m) return
+    nav(`/live/${m.game}`, { replace: true })
+  }, [m, isFree, nav])
+
   const join = () => {
+    // Free modes play the bot. A paid mode cannot be started from this screen at
+    // all, so it is forwarded instead of pretending: the live tables are the only
+    // place a real opponent is possible.
+    if (!isFree) { nav(`/live/${m.game}`, { replace: true }); return }
     if (!m) return
     // anti-spam guard: block rapid repeat joins (double-charge / abuse protection)
     if (!rateLimit('join', 6, 60000)) { toast(lang === 'bn' ? 'একটু ধীরে — আবার চেষ্টা করুন' : 'Slow down — try again shortly', 'err'); return }
     if (insufficient) { toast(t('match.insufficient'), 'err'); return }
-    if (m.entryMinor > 0 && !lockEntry(m.entryMinor, `Entry · ${t(m.nameKey as any)}`)) { toast(t('match.insufficient'), 'err'); return }
     setPhase('matching')
     setWaited(false)
     // Free practice = instant bot game. Paid = a real table, reached by room
     // code from the Live tab, never from here. See below.
-    if (isFree) setTimeout(goBot, 1200)
+    setTimeout(goBot, 1200)
   }
 
+// A paid mode is forwarded straight to the live tables, where a real opponent is
+// actually possible, and no money is touched on the way. The reasoning for the
+// arrangement this replaced is kept in docs/live-match-honesty.md, because the
+// short version is easy to undo by accident: this screen once started games that
+// were played entirely against a local bot while being labelled LIVE - Real Player.
   // Paid: wait briefly, then refund if no table was joined.
   //
   // There is deliberately NO way for this screen to start a live match, and the
@@ -56,11 +71,6 @@ export default function ConfirmJoin() {
   // needs an actual seat, so it is entered from the Live tab with a room code and
   // not from here. Until that flow is wired up, the honest answer for a paid mode
   // is: no opponent, refund.
-  useEffect(() => {
-    if (phase !== 'matching' || isFree) return
-    const id = setTimeout(() => setWaited(true), 8000)
-    return () => clearTimeout(id)
-  }, [phase, isFree])
 
   const cancelRefund = () => {
     if (!m) return

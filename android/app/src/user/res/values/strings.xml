@@ -1,0 +1,15 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!--
+  Player flavour labels.
+
+  Same reason as the admin flavour: cap sync rewrites the default strings.xml
+  from capacitor.config.ts, and the default res/ folder would then hold whatever
+  was synced last. Pinning them here makes `assembleUserDebug` independent of
+  build order.
+-->
+<resources>
+    <string name="app_name">KheloFire</string>
+    <string name="title_activity_main">KheloFire</string>
+    <string name="package_name">com.khelofire.app</string>
+    <string name="custom_url_scheme">com.khelofire.app</string>
+</resources>

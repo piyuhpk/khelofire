@@ -132,8 +132,13 @@ export default function LudoGame() {
   // a mode row the catalogue does not know about could reach a real board too.
   // Bounce rather than render nothing meaningful.
   useEffect(() => { if (!m) nav('/', { replace: true }) }, [m, nav])
-  if (!m) return null
-  if (!m) return null
+  // The `return null` for an unknown mode used to sit here, immediately above the
+  // first useState. React only requires hooks to run in the same order on every
+  // render, and returning before them means a mode that resolves on the second
+  // render (a deep link, or a mode row arriving from the database after the
+  // catalogue loads) shifts every hook by one and React throws. That is a white
+  // screen on a real device, from a bad URL. The guard now sits with the other
+  // render-time bailouts at the end of the component, after the last hook.
 
   const [st, setSt] = useState<LudoState>(() => initLudo(m?.players ?? 2))
   const [legal, setLegal] = useState<number[]>([])
@@ -542,6 +547,9 @@ const roll = () => {
   // navigated, but an effect runs after the first paint, so without this the board
   // appeared for a frame and could take a tap.
   if (blockedNoMatch) return null
+  // Safe this far down: the only unguarded `m` dereference in the component is
+  // `modeIsPaid`, which already tests `m` first.
+  if (!m) return null
 
   return (
     <div className="app-frame flex min-h-[100dvh] flex-col" style={{

@@ -13,7 +13,7 @@ import { useI18n } from '../../i18n'
 import { useToast, Spinner } from '../../ui/components'
 import {
   createMatch, joinMatch, startMatch, cancelMatch, fetchMatch, subscribeMatch,
-  isValidCode, LiveError, type LiveMatch,
+  isValidCode, readState, LiveError, type LiveMatch,
 } from '../../lib/live'
 import { modeById } from '../../lib/catalog'
 
@@ -85,6 +85,33 @@ export default function LiveTables() {
     if (!table) return
     setStarting(true)
     try {
+      // Pre-flight, and deliberately before start_live_match.
+      //
+      // Creating and seating a table are plain database RPCs and work with no edge
+      // function deployed. The board, though, is driven by the ludo-game function -
+      // so without it, start_live_match would still charge both entries and the
+      // match would sit there with no legal move for either player. That is the one
+      // failure a player must never walk into: money gone, game dead.
+      //
+      // readState is a read-only call, so probing it costs nothing and cannot change
+      // the match. If it cannot answer, nothing has been charged yet and we say so.
+      try {
+        await readState(table.match_id)
+      } catch (e) {
+        // Only say "server unavailable" when that is actually what happened.
+        // sendAction also throws when there is no session, and telling a player
+        // who is simply signed out that the server is down would send them to wait
+        // for something that is already working.
+        if (e instanceof LiveError && e.code === 'no_session') {
+          toast(bn ? 'আগে সাইন ইন করুন — কোনো টাকা কাটা হয়নি।' : 'Sign in first — nothing has been charged.', 'err')
+        } else {
+          toast(bn
+            ? 'গেম সার্ভার এখনো চালু নেই — কোনো টাকা কাটা হয়নি। একটু পরে আবার চেষ্টা করুন।'
+            : 'The game server is not available yet. Nothing has been charged — try again shortly.', 'err')
+        }
+        return
+      }
+
       await startMatch(table.match_id)
       const fresh = await fetchMatch(table.match_id)
       if (fresh) setTable(fresh)

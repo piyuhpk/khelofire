@@ -1,0 +1,19 @@
+<?xml version='1.0' encoding='utf-8'?>
+<!--
+  Admin flavour labels.
+
+  These override the values cap sync wrote from capacitor.config.ts, which
+  describes whichever bundle was synced last. They exist so that
+  `assembleAdminDebug` is correct no matter which build ran before it.
+
+  package_name and custom_url_scheme matter functionally, not cosmetically:
+  custom_url_scheme is what Capacitor uses to intercept the app's own deep links,
+  so an admin build left pointing at the player scheme would open the player app
+  instead.
+-->
+<resources>
+    <string name="app_name">KheloFire Admin</string>
+    <string name="title_activity_main">KheloFire Admin</string>
+    <string name="package_name">com.khelofire.admin</string>
+    <string name="custom_url_scheme">com.khelofire.admin</string>
+</resources>

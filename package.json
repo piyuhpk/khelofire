@@ -12,7 +12,9 @@
     "test:watch": "vitest",
     "typecheck:functions": "tsc -p supabase/functions/tsconfig.json --noEmit",
     "check:sql": "esbuild scripts/check-sql.ts --bundle --platform=node --format=esm --outfile=node_modules/.tmp/check-sql.mjs --log-level=error && node node_modules/.tmp/check-sql.mjs",
-    "typecheck": "tsc -b --force"
+    "typecheck": "tsc -b --force",
+    "apk": "node scripts/build-apk.mjs user",
+    "apk:admin": "node scripts/build-apk.mjs admin"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.2",

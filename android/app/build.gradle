@@ -22,6 +22,37 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+
+    // Two installable apps from one web bundle: the player app and the admin
+    // console. The flavour chooses the package id and the launcher name, so an
+    // operator can keep the admin console on the same phone without it overwriting
+    // the player app - or being overwritten by it.
+    //
+    // `dist` already holds the built web assets at this point, because
+    // capacitor.config.ts picks the package id from VITE_ADMIN_BUILD before
+    // cap sync runs. So the flavour's job is only to override what cap sync
+    // wrote into strings.xml and build.gradle for the build that was just synced.
+    //
+    // src/user/res and src/admin/res override the launcher name, id and icon
+    // background; everything else is shared.
+    flavorDimensions "target"
+    productFlavors {
+        user {
+            dimension "target"
+            applicationId "com.khelofire.app"
+            versionNameSuffix ""
+        }
+        admin {
+            dimension "target"
+            applicationId "com.khelofire.admin"
+            versionNameSuffix "-admin"
+            resValue "string", "app_name", "KheloFire Admin"
+            resValue "string", "title_activity_main", "KheloFire Admin"
+            resValue "string", "package_name", "com.khelofire.admin"
+            resValue "string", "custom_url_scheme", "com.khelofire.admin"
+            resValue "color", "ic_launcher_background", "#1E2A5A"
+        }
+    }
 }
 
 repositories {

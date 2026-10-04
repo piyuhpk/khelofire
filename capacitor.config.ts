@@ -1,8 +1,21 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
+// The admin console is the same web app behind the same staff check, but it ships
+// as a SEPARATE Android package so the operator's phone does not carry the player
+// app and so the two can sit on one device without colliding.
+//
+// Two separate builds, one source tree. `npm run build:admin` sets
+// VITE_ADMIN_BUILD=true before vite runs; main.tsx uses that same flag to open
+// straight into /admin, and here it changes the launcher name and the package id.
+//
+// The package id has to differ. Android identifies an installed app by package,
+// and installing the admin build over the player build - or vice versa - replaces
+// it. Sharing com.khelofire.app would mean handing a client your admin phone.
+const admin = process.env.VITE_ADMIN_BUILD === 'true'
+
 const config: CapacitorConfig = {
-  appId: 'com.khelofire.app',
-  appName: 'KheloFire',
+  appId: admin ? 'com.khelofire.admin' : 'com.khelofire.app',
+  appName: admin ? 'KheloFire Admin' : 'KheloFire',
   webDir: 'dist',
   // Native Google Sign-In (@capgo/capacitor-social-login) shows the account
   // chooser as a sheet inside the app, so "Continue with Google" no longer throws
