@@ -1,7 +1,7 @@
 import { useNavigate } from 'react-router-dom'
 import { ChevronLeft, ChevronRight, Trophy, Dice5, Crown, Grid3x3, Dices } from 'lucide-react'
 import { useT, useI18n } from '../../i18n'
-import { allModes, modeName, GAME_ORDER, GAME_META, type GameMode } from '../../lib/catalog'
+import { allModes, modeName, GAME_ORDER, GAME_META, type GameMode, canPlayLive } from '../../lib/catalog'
 import type { GameKey } from '../../lib/store'
 import { fmt } from '../../lib/money'
 import { GameEmblem, TILE_THEME } from '../home/GameArt'
@@ -61,7 +61,7 @@ function GameSection({ game }: { game: GameKey }) {
   const t = useT()
   const nav = useNavigate()
   const chessEnabled = useStore((s) => s.siteConfig.chessEnabled)
-  const modes = allModes().filter((m) => m.game === game && (m.game !== 'chess' || chessEnabled))
+  const modes = allModes().filter((m) => m.game === game && canPlayLive(m) && (m.game !== 'chess' || chessEnabled))
   const Icon = GAME_ICON[game]
   return (
     <div className="px-4 pt-6">

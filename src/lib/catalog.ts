@@ -115,6 +115,32 @@ export const GAME_META: Record<GameKey, { nameKey: string; icon: 'ludo' | 'chess
 }
 export const GAME_ORDER: GameKey[] = ['ludo', 'chess', 'guti', 'dice']
 
+/**
+ * Which games actually have a live opponent engine behind them.
+ *
+ * Only Ludo does. `create_live_match` is the single server entry point for every
+ * game, and the only board it can drive is the ludo-game edge function - it speaks
+ * Ludo's dice, tokens and turn rules and nothing else. Chess, Guti and Dice play
+ * perfectly well against the local bot, which is why they are in the app at all.
+ *
+ * This exists because the paid modes for those three are reachable, and a paid
+ * mode has to lead somewhere real. Routing /live/chess at the live tables screen
+ * is worse than having no button: that screen creates a Ludo table, so someone who
+ * paid 20tk for chess is handed a Ludo board and a receipt. So the rule is stated
+ * here once, and the screens that sell money ask it before they take any.
+ */
+export const LIVE_GAMES: readonly GameKey[] = ['ludo']
+export const hasLiveOpponent = (game: GameKey): boolean => LIVE_GAMES.includes(game)
+
+/**
+ * Can this mode be entered for money right now?
+ *
+ * Free modes always can - they are a local bot game. A paid mode can only be paid
+ * for if the server can seat a real opponent for it.
+ */
+export const canPlayLive = (m: GameMode): boolean =>
+  m.practice || m.entryMinor === 0 || hasLiveOpponent(m.game)
+
 export interface Banner {
   id: string
   titleBn: string; titleEn: string

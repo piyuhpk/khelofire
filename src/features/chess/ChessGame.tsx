@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { Chess, type Square } from 'chess.js'
-import { useT } from '../../i18n'
-import { modeById } from '../../lib/catalog'
+import { useT, useI18n } from '../../i18n'
+import { useToast } from '../../ui/components'
+import { modeById, hasLiveOpponent } from '../../lib/catalog'
 import { useStore, type Outcome } from '../../lib/store'
 import { GameHeader, VoiceButton, ExitModal, ResultModal } from '../game/GameShell'
 import { MatchChat } from '../game/MatchChat'
@@ -17,8 +18,23 @@ export default function ChessGame() {
   const { modeId } = useParams()
   const m = modeById(modeId!)
   const t = useT()
+
+  const { lang } = useI18n()
   const nav = useNavigate()
   const settle = useStore((s) => s.settle)
+  const toast = useToast()
+  // A paid mode reached without a real match id is not a game, it is a free win:
+  // the local settle() below credits this mode's real prize with no entry ever
+  // debited, and a deep link is all it takes. LudoGame got this guard when the same
+  // hole was found there; chess, guti and dice were left behind and reachable the
+  // same way. Only ludo has a live engine, so only ludo has anywhere to go.
+  const blockedNoMatch = !!m && m.entryMinor > 0 && !m.practice && !hasLiveOpponent(m.game)
+  useEffect(() => {
+    if (!blockedNoMatch) return
+    toast(lang === 'bn' ? 'এই গেমটা এখনো লাইভ নেই' : 'This game is not live yet', 'err')
+    nav('/', { replace: true })
+  }, [blockedNoMatch, toast, nav])
+
   const username = useStore((s) => s.username) || t('common.guest')
 
   const game = useRef(new Chess())

@@ -1,10 +1,9 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronLeft, Crosshair, Crown, Trophy, Users, Clock, Copy, Upload, ExternalLink, ShieldCheck } from 'lucide-react'
+import { ChevronLeft, Crosshair, Crown, Trophy, Users, Clock } from 'lucide-react'
 import { useI18n } from '../../i18n'
-import { useStore } from '../../lib/store'
 import { fmt, toMinor } from '../../lib/money'
-import { useToast, Sheet } from '../../ui/components'
+import { Sheet } from '../../ui/components'
 
 type Kind = 'freefire' | 'ludoking'
 interface Match { id: string; title: string; sub: string; prizeMinor: number; entryMinor: number; slots: number; joined: number; when: string; room: string; pass: string }
@@ -32,26 +31,12 @@ const DATA: Record<Kind, { title: string; Icon: typeof Crosshair; accent: string
 export default function ExternalArena({ kind }: { kind: Kind }) {
   const nav = useNavigate()
   const { lang } = useI18n()
-  const toast = useToast()
-  const available = useStore((s) => s.availableMinor)
-  const lockEntry = useStore((s) => s.lockEntry)
   const L = (bn: string, en: string) => (lang === 'bn' ? bn : en)
   const cfg = DATA[kind]
 
   const [sel, setSel] = useState<Match | null>(null)
-  const [joined, setJoined] = useState(false)
-  const [file, setFile] = useState<string | null>(null)
 
-  const open = (m: Match) => { setSel(m); setJoined(false); setFile(null) }
-  const doJoin = () => {
-    if (!sel) return
-    if (available < sel.entryMinor) { toast(L('ব্যালেন্স কম', 'Insufficient balance'), 'err'); return }
-    if (sel.entryMinor > 0 && !lockEntry(sel.entryMinor, `Entry · ${cfg.title} ${sel.title}`)) { toast(L('ব্যালেন্স কম', 'Insufficient balance'), 'err'); return }
-    setJoined(true)
-    toast(L('জয়েন হয়েছে — রুমে যান', 'Joined — open the room'), 'ok')
-  }
-  const roomCode = sel ? (kind === 'ludoking' ? '77' + sel.id.slice(-1) + '213' : 'FF' + sel.id.slice(-1).toUpperCase() + '9021') : ''
-  const roomPass = kind === 'ludoking' ? '' : '4417'
+  const open = (m: Match) => setSel(m)
 
   return (
     <div className="app-frame flex min-h-[100dvh] flex-col" style={{ background: cfg.bg }}>
@@ -99,44 +84,34 @@ export default function ExternalArena({ kind }: { kind: Kind }) {
         <p className="pt-1 text-center text-[11px] text-muted">{L('রেজাল্ট স্ক্রিনশট অ্যাডমিন যাচাই করে ক্রেডিট করে (ডেমো)।', 'Results are verified by admin before credit (demo).')}</p>
       </div>
 
-      {/* join → room code → result upload */}
+      {/* No join, no entry, no room code.
+          This screen used to debit the wallet with lockEntry(), print a room code
+          built from the match id - "771213", password "4417" - and then ask for a
+          result screenshot that was discarded on submit. Every number in DATA is
+          typed by hand and there is no tournament behind any of it, so that flow
+          took real money for a match that cannot happen and reported the outcome as
+          "under review" when nothing was ever reviewed.
+
+          Until these tournaments are actually hosted, this screen may not take
+          money. Listing them with an entry price is the part that has to go too:
+          a price on a card is a promise. */}
       <Sheet open={!!sel} onClose={() => setSel(null)}>
         {sel && (
           <>
             <h3 className="mb-1 font-display text-base font-extrabold">{sel.title}</h3>
             <p className="mb-3 text-xs text-muted">{cfg.title} · {sel.sub}</p>
-
-            {!joined ? (
-              <>
-                <div className="mb-3 space-y-2">
-                  {[[L('এন্ট্রি', 'Entry'), sel.entryMinor ? fmt(sel.entryMinor) : L('ফ্রি', 'Free')], [L('প্রাইজ', 'Prize'), fmt(sel.prizeMinor)], [L('ব্যালেন্স', 'Balance'), fmt(available)]].map(([k, v]) => (
-                    <div key={k} className="flex justify-between text-sm"><span className="text-muted">{k}</span><span className="font-bold">{v}</span></div>
-                  ))}
-                </div>
-                <button onClick={doJoin} className="btn-primary w-full">{sel.entryMinor ? fmt(sel.entryMinor) + ' · ' : ''}{L('জয়েন করুন', 'Confirm & Join')}</button>
-              </>
-            ) : (
-              <>
-                <div className="mb-3 rounded-2xl p-3" style={{ background: 'var(--bg)' }}>
-                  <div className="flex items-center justify-between">
-                    <div><div className="text-[11px] text-muted">{L('রুম কোড', 'Room code')}</div><div className="tnum font-display text-xl font-extrabold tracking-wider">{roomCode}</div></div>
-                    <button onClick={() => { navigator.clipboard?.writeText(roomCode); toast(L('কপি ✓', 'Copied ✓'), 'ok') }} className="grid h-9 w-9 place-items-center rounded-xl" style={{ background: 'var(--glass)' }}><Copy className="h-4 w-4" strokeWidth={2.2} /></button>
-                  </div>
-                  {roomPass && <div className="mt-2 text-[12px]">{L('পাসওয়ার্ড', 'Password')}: <b className="tnum">{roomPass}</b></div>}
-                </div>
-                <button onClick={() => toast(L(`${cfg.title} অ্যাপ খুলুন`, `Open the ${cfg.title} app`), 'info')} className="btn-ghost mb-3 w-full"><ExternalLink className="h-4 w-4" strokeWidth={2.2} />{L(`${cfg.title} খুলুন`, `Open ${cfg.title}`)}</button>
-
-                <label className="label">{L('রেজাল্ট স্ক্রিনশট', 'Result screenshot')}</label>
-                <label className="mb-3 flex cursor-pointer flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed py-6 text-center" style={{ borderColor: 'var(--glass-brd)', background: 'var(--glass)' }}>
-                  <Upload className="h-6 w-6 text-primary-2" strokeWidth={2} />
-                  <span className="text-xs font-semibold">{file || L('স্ক্রিনশট বাছুন', 'Choose screenshot')}</span>
-                  <input type="file" accept="image/*" className="hidden" onChange={(e) => setFile(e.target.files?.[0]?.name || null)} />
-                </label>
-                <button disabled={!file} onClick={() => { setSel(null); toast(L('রেজাল্ট জমা — যাচাই চলছে', 'Result submitted — under review'), 'ok') }} className="btn-primary w-full disabled:opacity-50">
-                  <ShieldCheck className="h-4 w-4" strokeWidth={2.2} />{L('রেজাল্ট জমা দিন', 'Submit result')}
-                </button>
-              </>
-            )}
+            <div className="mb-4 rounded-2xl p-4 text-center" style={{ background: 'var(--bg)' }}>
+              <p className="text-sm font-extrabold">{L('শীঘ্রই আসছে', 'Coming soon')}</p>
+              <p className="mt-2 text-xs text-muted">
+                {L(
+                  'এই টুর্নামেন্ট এখনো চালু নেই। কোনো টাকা কাটা হবে না।',
+                  'This tournament is not running yet. No entry is charged.',
+                )}
+              </p>
+            </div>
+            <button onClick={() => setSel(null)} className="btn-primary w-full">
+              {L('ঠিক আছে', 'OK')}
+            </button>
           </>
         )}
       </Sheet>

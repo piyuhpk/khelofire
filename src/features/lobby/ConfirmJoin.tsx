@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useT, useI18n } from '../../i18n'
-import { modeById } from '../../lib/catalog'
+import { modeById, hasLiveOpponent } from '../../lib/catalog'
 import { fmt } from '../../lib/money'
 import { useStore } from '../../lib/store'
 import { rateLimit } from '../../lib/ratelimit'
@@ -22,21 +22,33 @@ export default function ConfirmJoin() {
   const insufficient = !m || available < m.entryMinor
   const isFree = !m || m.entryMinor === 0
 
+  // Whether the live tables can actually seat an opponent for this game.
+  //
+  // /live/:game renders one screen, and that screen creates Ludo tables. So for
+  // chess, guti and dice there is no live destination to forward to - forwarding
+  // anyway is how someone who paid for chess ends up holding a Ludo board.
+  const liveCapable = !m || hasLiveOpponent(m.game)
+
   const goBot = () => { if (m) nav(`/play/${m.game}/${m.id}`, { replace: true }) }
 
   // Structural guard: a paid mode is bounced the moment this screen mounts, so the
   // code below has no way to hold an entry even if a route change lands here
-  // before the button is ever pressed.
+  // before the button is ever pressed. Modes with no live engine stop here instead
+  // of being forwarded anywhere.
   useEffect(() => {
-    if (isFree || !m) return
+    if (isFree || !m || !liveCapable) return
     nav(`/live/${m.game}`, { replace: true })
-  }, [m, isFree, nav])
+  }, [m, isFree, liveCapable, nav])
 
   const join = () => {
     // Free modes play the bot. A paid mode cannot be started from this screen at
     // all, so it is forwarded instead of pretending: the live tables are the only
     // place a real opponent is possible.
-    if (!isFree) { nav(`/live/${m.game}`, { replace: true }); return }
+    if (!isFree) {
+      if (liveCapable) { nav(`/live/${m.game}`, { replace: true }); return }
+      toast(lang === 'bn' ? 'এই গেমটা এখনো লাইভ নেই' : 'This game is not live yet', 'err')
+      return
+    }
     if (!m) return
     // anti-spam guard: block rapid repeat joins (double-charge / abuse protection)
     if (!rateLimit('join', 6, 60000)) { toast(lang === 'bn' ? 'একটু ধীরে — আবার চেষ্টা করুন' : 'Slow down — try again shortly', 'err'); return }
@@ -80,6 +92,40 @@ export default function ConfirmJoin() {
   }
 
   if (!m) { nav('/'); return null }
+
+  // Paid mode whose game has no live engine yet. Say so and take no money.
+  //
+  // The alternative - letting the button look normal and failing later - is the
+  // exact shape of complaint that loses a customer. A tile that reads "coming soon"
+  // costs one disappointed tap. A tile that takes 2000 and then hands over a Ludo
+  // board costs the account.
+  if (!isFree && !liveCapable) {
+    return (
+      <div className="app-frame flex min-h-[100dvh] flex-col items-center justify-center gap-5 px-8 text-center text-white"
+        style={{ background: 'linear-gradient(160deg,#0F1E3D,#16264A)' }}>
+        <div className="text-6xl opacity-60">{m.game === 'chess' ? '♘' : m.game === 'dice' ? '🎲' : '●'}</div>
+        <div>
+          <h2 className="text-lg font-extrabold">
+            {lang === 'bn' ? 'শীঘ্রই আসছে' : 'Coming soon'}
+          </h2>
+          <p className="mt-2 text-sm text-white/70">
+            {lang === 'bn'
+              ? `${t(m.nameKey as any)} এখনো লাইভ নেই। এখনই ফ্রি প্র্যাকটিসে খেলুন।`
+              : `${t(m.nameKey as any)} is not live yet. Free practice is available now.`}
+          </p>
+        </div>
+        <div className="flex w-full max-w-xs flex-col gap-2">
+          <button onClick={() => nav(`/join/${m.game}_practice`, { replace: true })} className="btn-primary w-full">
+            {lang === 'bn' ? 'ফ্রি প্র্যাকটিস খেলুন' : 'Play free practice'}
+          </button>
+          <button onClick={() => nav('/', { replace: true })} className="btn-ghost w-full">
+            {lang === 'bn' ? 'হোমে ফিরে যান' : 'Back to home'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
   if (phase === 'matching') {
     return (
       <div className="app-frame flex min-h-[100dvh] flex-col items-center justify-center gap-4 px-8 text-center text-white"
