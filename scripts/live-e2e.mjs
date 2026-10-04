@@ -32,6 +32,7 @@
  */
 import { readFileSync } from 'node:fs'
 import { createClient } from '@supabase/supabase-js'
+import { legalTokens } from './engine-for-e2e.mjs'
 
 const env = Object.fromEntries(
   readFileSync('.env', 'utf8')
@@ -51,6 +52,7 @@ if (!URL || !KEY) {
 }
 
 const stamp = Date.now().toString(36)
+const TRACE = process.env.TRACE !== '0'
 const log = (...a) => console.log(...a)
 const fail = (msg, detail) => {
   console.error(`\nFAIL: ${msg}`)
@@ -113,46 +115,35 @@ async function act(p, matchId, action, token) {
     body: JSON.stringify({ match_id: matchId, action, token }),
   })
   const body = await res.json().catch(() => ({}))
+  if (TRACE) {
+    // Both turn fields, on every single call. turn_seat is a column and state.turn
+    // is inside the board JSON; the engine authorises on the board, so the two
+    // drifting apart is invisible from any one response.
+    console.log(
+      `   [trace] ${p.tag} ${action}${token !== undefined ? `(${token})` : ''} -> ` +
+        `${res.status}  column turn_seat=${body.turn_seat}  board turn=${body.state?.turn}  ` +
+        `your_seat=${body.your_seat}  dice=${body.state?.dice}  rolled=${body.state?.rolled}  ` +
+        `v=${body.version}`,
+    )
+  }
   if (!res.ok) {
-    throw new Error(`ludo-game ${action} -> HTTP ${res.status}: ${body.error ?? 'no error body'}`)
+    // The function returns its whole view alongside a 409, so a refusal carries the
+    // board and the asker's seat as the deployed code saw them at that instant.
+    // That is worth printing: "it is seat 0" while the caller is seat 0 is
+    // impossible from the outside, and this is the only place the inside is visible.
+    const seen = body?.your_seat !== undefined
+      ? `\n      as the function saw it: your_seat=${body.your_seat} ` +
+        `(${typeof body.your_seat})  state.turn=${body.state?.turn} (${typeof body.state?.turn})  ` +
+        `turn_seat=${body.turn_seat}  version=${body.version}`
+      : ''
+    throw new Error(
+      `ludo-game ${action} -> HTTP ${res.status}: ${body.error ?? 'no error body'}` +
+        (body.code ? ` [code=${body.code}]` : '') +
+        (body.timed_out ? ' [timed_out]' : '') +
+        seen,
+    )
   }
   return body
-}
-
-/**
- * Which of my tokens can this dice move?
- *
- * Reimplemented here rather than imported so the test cannot inherit a bug from the
- * code it is meant to check. The engine rejects an illegal move; if this computes
- * the wrong token the test fails loudly instead of silently passing.
- */
-function legalTokens(state, seat, dice) {
-  const { tokens, positions } = state
-  const mine = tokens[seat]
-  const out = []
-  for (let lane = 0; lane < mine.length; lane++) {
-    const rel = mine[lane]
-    if (rel <= 0) continue
-    const abs = rel - 1 + dice
-    if (abs >= 57) {
-      out.push(lane)
-      continue
-    }
-    // A blockade stops movement only when the path is full, and only in a
-    // non-home stretch; the home stretch is owned by the token itself.
-    const target = positions[lane][abs]
-    const onHomeRun = abs >= 51
-    if (onHomeRun) {
-      out.push(lane)
-      continue
-    }
-    const path = positions[lane].slice(rel, abs + 1)
-    const blocked = path.some(
-      (sq, k) => sq.occupied && sq.seat !== seat && k < path.length - 1,
-    )
-    if (!blocked) out.push(lane)
-  }
-  return out
 }
 
 const run = async () => {
@@ -170,28 +161,50 @@ const run = async () => {
   }
   log(`   match modes: ${modes.length}`)
 
-  // Is the board engine even deployed? Ask it something harmless.
+  // Is the board engine even deployed? Ask it something harmless with a
+  // deliberately invalid token.
+  //
+  // The status alone does not answer it: a deployed function rejects a bad JWT
+  // with 401, which looks identical to "not there" if you only test for failure.
+  // Only Supabase's NOT_FOUND means the function is absent, so that is the only
+  // signal treated as a missing deploy - otherwise this reports a deployed
+  // project as broken and sends the reader chasing the wrong thing.
   const health = await fetch(`${URL}/functions/v1/ludo-game`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', apikey: KEY, Authorization: 'Bearer x' },
+    headers: { 'Content-Type': 'application/json', apikey: KEY, Authorization: 'Bearer not-a-real-token' },
     body: JSON.stringify({ action: 'state' }),
   })
-  if (health.status === 404 || health.status === 401) {
+  const healthBody = await health.json().catch(() => ({}))
+  const notFound = healthBody?.code === 'NOT_FOUND' || health.status === 404
+  if (notFound) {
     fail(
       'the ludo-game edge function is not deployed',
       'Run: npx supabase functions deploy ludo-game\n' +
         'Without it a player pays an entry and then cannot make a move.',
     )
   }
-  log('   ludo-game: reachable')
+  log(
+    `   ludo-game: deployed (probe answered ${health.status}` +
+      `${health.status === 401 ? ', rejecting our fake token as expected' : ''})`,
+  )
 
   const wanted = process.argv[2]
   const ludo = modes.filter((m) => m.game === 'ludo' && m.active !== false)
+
+  // A practice mode cannot host a live match - create_live_match rejects it, which
+  // is the database being correct. So exclude anything priced at zero, and prefer
+  // the cheapest real table, because the thing under test is the paid path.
+  const real = ludo.filter((m) => Number(m.entry_minor) > 0)
   const mode = wanted
     ? modes.find((m) => m.id === wanted)
-    : ludo.sort((a, b) => Number(a.entry_minor) - Number(b.entry_minor))[0]
+    : real.sort((a, b) => Number(a.entry_minor) - Number(b.entry_minor))[0]
 
-  if (!mode) fail(`no ludo mode available${wanted ? ` with id ${wanted}` : ''}`)
+  if (!mode) {
+    fail(
+      `no ludo mode with an entry fee exists${wanted ? ` with id ${wanted}` : ''}`,
+      `available: ${ludo.map((m) => `${m.id}(${m.entry_minor})`).join(', ')}`,
+    )
+  }
   const entry = Number(mode.entry_minor ?? 0)
   const prize = Number(mode.prize_minor ?? 0)
   log(`   mode: ${mode.id}  entry=${entry}  prize=${prize}`)
@@ -225,7 +238,22 @@ const run = async () => {
   await rpc(host.sb, 'start_live_match', { p_match_id: matchId })
 
   const afterStart = await act(host, matchId, 'state')
-  log(`   started: turn_seat=${afterStart.turn_seat}  host_seat=${afterStart.your_seat}`)
+  // Both, because they are stored separately and can disagree: turn_seat is a
+  // column the SQL maintains, state.turn lives inside the board JSON the engine
+  // reads. The engine authorises on the board, so a mismatch between the two means
+  // the rightful player is told "it is seat N" by a game that is waiting for them.
+  log(
+    `   started: column turn_seat=${afterStart.turn_seat} (${typeof afterStart.turn_seat})  ` +
+      `board state.turn=${afterStart.state?.turn} (${typeof afterStart.state?.turn})  ` +
+      `player_id=${afterStart.your_seat} (${typeof afterStart.your_seat})`,
+  )
+  if (afterStart.your_seat !== afterStart.state?.turn) {
+    console.log(
+      `\nTYPE MISMATCH: player_id is ${typeof afterStart.your_seat} but the board's turn is ` +
+        `${typeof afterStart.state?.turn}.\n` +
+        'The engine compares them with !==, so the rightful player is refused every roll.',
+    )
+  }
 
   const bal = async (p) => {
     const { data } = await p.sb
@@ -249,39 +277,83 @@ const run = async () => {
   }
 
   log('\n== play to a finish ==')
+  // Seat -> player, learned from what the database said rather than assumed.
+  // The host is seat 0 and a 2-player joiner is seat 2, not 1: those are opposite
+  // corners on the board.
+  const seatedAs = new Map([[0, host], [Number(joinRow.seat), guest]])
+  const playerFor = (seat) => {
+    const p = seatedAs.get(Number(seat))
+    if (!p) throw new Error(`nobody is seated at seat ${seat}`)
+    return p
+  }
+
   let turns = 0
   let winner = null
-  while (turns < 400) {
-    turns++
-    const seat = afterStart.turn_seat
-    const p = seat === afterStart.your_seat ? host : guest
-    const rolled = await act(p, matchId, 'roll')
-    const st = rolled.state
+  let stale = 0
 
-    if (st.winner !== null && st.winner !== undefined) {
+  // The board is re-read before every action rather than tracked locally.
+  //
+  // The engine's own response describes the match as it was BEFORE the commit it
+  // just made, so a caller that trusts the turn_seat it was handed acts one turn
+  // behind - and is then refused with "it is seat N", looking exactly like a server
+  // that will not accept a move from the rightful player. Reading first costs one
+  // request and removes the entire class of mistake.
+  while (turns < 600) {
+    turns++
+
+    const before = await act(host, matchId, 'state')
+    if (before.state?.winner != null) {
+      winner = before.state.winner
+      log(`   engine reports winner seat ${winner} after ${turns} turns`)
+      break
+    }
+
+    const seat = Number(before.turn_seat)
+    const p = playerFor(seat)
+    let st = before.state
+
+    // Only roll if the fresh read says this seat has not rolled yet.
+    //
+    // A successful roll answers with the match as it was BEFORE its own commit, so
+    // the dice and the `rolled` flag in that response are the previous turn's. Trust
+    // it and the next request is a second roll for the same turn, refused as
+    // `already_rolled` - a self-inflicted error that reads like a server bug.
+    if (!(st?.rolled && st?.dice != null)) {
+      try {
+        await act(p, matchId, 'roll')
+} catch (e) {
+      // Three recoverable conditions, all of them the engine moving the board on
+      // its own rather than a fault:
+      //   not_your_turn - our read raced a pass
+      //   already_rolled - the read was a turn behind
+      //   timed_out     - this script is slower than the turn clock, and the engine
+      //                   has already forfeited and advanced. That is the forfeit
+      //                   rule working, not a bug, so the run continues.
+      const soft = ['not_your_turn', 'already_rolled', 'timed_out']
+      if (soft.some((c) => String(e.message).includes(c)) && stale++ < 40) continue
+      throw e
+    }
+      st = (await act(p, matchId, 'state')).state
+    }
+
+    if (st?.winner != null) {
       winner = st.winner
       log(`   engine reports winner seat ${winner} after ${turns} turns`)
       break
     }
 
-    const options = legalTokens(st, seat, st.dice)
-    if (!options.length) {
-      // The engine already passed the turn when nothing was playable.
-      const next = await act(p, matchId, 'state')
-      if (next.turn_seat === seat) {
-        fail(`seat ${seat} has no legal move but the turn did not pass`, JSON.stringify(st))
-      }
-      Object.assign(afterStart, next)
-      continue
+    // Move only when the engine is holding the turn open with a dice in hand. When
+    // nothing can move it has already ended the turn, and a move would be refused.
+    if (st?.rolled && st?.dice != null) {
+      const options = legalTokens(st, seat, st.dice)
+      if (options.length) await act(p, matchId, 'move', options[0])
     }
-    const moved = await act(p, matchId, 'move', options[0])
-    Object.assign(afterStart, moved)
   }
 
   if (winner === null) fail(`the game never finished in ${turns} turns`)
 
   log('\n== settle ==')
-  const winnerIsHost = winner === afterStart.your_seat
+  const winnerIsHost = Number(winner) === 0
   const winnerP = winnerIsHost ? host : guest
   const loserP = winnerIsHost ? guest : host
   const winBefore = await bal(winnerP)

@@ -1,5 +1,5 @@
 // 15x15 grid coordinate maps for rendering the classic 4-colour Ludo board.
-import type { PlayerId } from './ludo'
+import type { PlayerId } from './ludo.ts'
 
 export type Cell = [number, number] // [row, col] 0..14
 

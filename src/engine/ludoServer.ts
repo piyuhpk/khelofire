@@ -15,7 +15,7 @@ import {
   rollDice,
   type LudoState,
   type PlayerId,
-} from './ludo'
+} from './ludo.ts'
 
 /** Must match TURN_SECONDS in src/features/ludo/LudoGame.tsx and the interval in
  *  supabase/003_ludo_engine.sql. One number, three places, all commented. */
