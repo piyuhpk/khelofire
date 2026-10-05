@@ -146,19 +146,32 @@ export async function loadUserData() {
       useStore.setState({ matches })
     }
 
-    // Staff-only: the admin's deposit/withdrawal queue. The RPC returns empty
-    // arrays for anyone who is not staff, so this is safe to call always - it
-    // is what makes another player's request visible in the admin panel at all.
-    // Caught on its own rather than by the block above: a missing staff role is a
-    // fact about this account, and it must not read as a failure to load the
-    // player's own profile and matches, which is what the outer catch reports.
-    const pending = await wallet.fetchPendingRequests().catch((e) => {
-      notifyError('Could not load the pending requests queue', e)
-      return null
-    })
-    if (pending && (pending.deposits.length || pending.withdrawals.length)) {
-      useStore.getState().setPendingRequests(pending)
+    // Staff-only: the admin's deposit/withdrawal queue, which is what makes another
+    // player's request visible in the admin panel at all.
+    //
+    // Was called on every sign-in, on the belief that "the RPC returns empty arrays
+    // for anyone who is not staff". It does not - it raises. So every ordinary
+    // player who signed in, reopened the app, or made a new account got the banner
+    //
+    //   Could not load the pending requests queue:
+    //   not authorised - your account has no staff role
+    //
+    // on a page they have no control over, and no way to dismiss it into going away.
+    // The account having no staff role is not a failure to report; it is the normal
+    // state of a player's account, and for them the queue being empty is the answer.
+    //
+    // So: only staff ask. A staff account that genuinely fails still reports,
+    // because then it is a real fault and the admin is the one who can act on it.
+    if (useStore.getState().isAdmin) {
+      const pending = await wallet.fetchPendingRequests().catch((e) => {
+        notifyError('Could not load the pending requests queue', e)
+        return null
+      })
+      if (pending && (pending.deposits.length || pending.withdrawals.length)) {
+        useStore.getState().setPendingRequests(pending)
+      }
     }
+
 
     // The mode catalogue. Fetched on every load, not just at login, so a mode the
     // admin creates or edits appears without the player being made to sign out.

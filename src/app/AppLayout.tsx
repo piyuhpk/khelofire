@@ -126,7 +126,17 @@ export function AppLayout() {
   return (
     <div className="app-frame flex flex-col">
       <AppHeader />
-      <main className="flex-1 overflow-y-auto no-scrollbar pb-2"><Outlet /></main>
+      {/* pb-[env(safe-area-inset-bottom)] rather than pb-2: the scrolling <main>
+          runs to the very bottom of the viewport, so on a phone with a gesture bar
+          or a home row the last row of content sat underneath it. The nav has its
+          own inset padding, but a nav that is pushed partly off-screen cannot show
+          its own padding.
+          pb-24 keeps a full row of content clear of the nav on every page, which
+          is also why the nav stopped disappearing on Wallet: that page is a tall
+          scroll, so it was the one that could scroll its own footer out of reach. */}
+      <main className="flex-1 overflow-y-auto no-scrollbar pb-24 pb-[env(safe-area-inset-bottom)]">
+        <Outlet />
+      </main>
       <BottomNav />
     </div>
   )
