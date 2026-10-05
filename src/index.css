@@ -80,6 +80,13 @@ h1, h2, h3, h4 { font-family: 'Sora', 'Hind Siliguri', system-ui, sans-serif; le
    and these are referenced by raw CSS, so it would otherwise drop them. */
 @keyframes rise-in { 0% { transform: translateY(16px); opacity: 0 } 100% { transform: translateY(0); opacity: 1 } }
 @keyframes shimmer { 100% { transform: translateX(100%) } }
+/* Whose turn it is. A slow breath rather than a blink: on a bright board a hard
+   flash is easy to miss between two moves, and this ring has to be the thing the
+   eye catches when an opponent's move goes by. */
+@keyframes ludoTurnPulse {
+  0%, 100% { opacity: 0.95 }
+  50% { opacity: 0.35 }
+}
 
 @layer components {
   /* liquid-glass buttons: bevelled top sheen + glow */

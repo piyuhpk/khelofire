@@ -1,5 +1,5 @@
 import { PATH, cellFor, pileLayout } from '../../engine/ludoBoard'
-import { START_OFFSET, FINISH, type LudoState, type PlayerId } from '../../engine/ludo'
+import { START_OFFSET, FINISH, COLORS, type LudoState, type PlayerId } from '../../engine/ludo'
 import boardArt from '../../assets/ludoking/ludofinalboard2.png'
 import redPiece from '../../assets/ludoking/redpiece.png'
 import greenPiece from '../../assets/ludoking/greenpiece.png'
@@ -83,13 +83,43 @@ export function LudoBoard({ state, legal, onToken, youSeat = 0 }: { state: LudoS
   return (
     // outer frame: gold-trimmed, bevelled, like a physical board
     <div
-      className="mx-auto w-full max-w-[420px] p-[4px]"
+      className="mx-auto w-full max-w-[420px] p-[4px] relative"
       style={{
         borderRadius: 18,
         background: 'linear-gradient(155deg,#3A4034 0%,#262B23 55%,#171B16 100%)',
         boxShadow: '0 18px 40px -16px rgba(0,0,0,.78)',
       }}
     >
+      {/* Whose turn it is, on the board itself.
+          The status line under the board already said "Red is playing", but it is
+          small, it sits below the fold on a short phone, and the eye during a turn
+          is on the board - so a bot's move passed as a flicker nobody registered,
+          which is exactly the report: "the opponent moved and I never saw it, it
+          was my turn again already".
+
+          The ring is drawn around the active player's own square rather than as a
+          banner, so it is visible without looking away from where the move
+          happens. It is inset inside the cell so it cannot overlap a neighbouring
+          square's token - the same bound the pile fan is held to. */}
+      {state.turn !== null && state.winner === null && (() => {
+        const p = state.turn
+        const here = state.tokens[p].map((pos, i) => cellFor(p, pos, i))
+        return here.map(([r, c], i) => (
+          <div
+            key={`turn-${p}-${i}`}
+            data-testid={`turn-ring-${p}`}
+            aria-hidden="true"
+            className="pointer-events-none absolute grid place-items-center rounded-full"
+            style={{
+              top: pct(r), left: pct(c), width: pct(1), height: pct(1),
+              boxShadow: `inset 0 0 0 ${Math.max(2, 100 / N * 0.14)}px ${COLORS[p]}`,
+              opacity: 0.95,
+              animation: 'ludoTurnPulse 1.1s ease-in-out infinite',
+              zIndex: 5,
+            }}
+          />
+        ))
+      })()}
       <div
         data-testid="ludoboard"
         className="relative aspect-square w-full overflow-hidden"

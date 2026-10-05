@@ -273,6 +273,42 @@ expect(spent).toBeLessThan(600_000)
     // position - a collapsed pile shows up here as a size of one
     expect(cells.size).toBe(tokens.length)
   })
+
+  // "The opponent moved and I never saw it - by the time I looked it was my turn
+  // again." The status line under the board already named the player on turn, but
+  // it is small, sits below the fold on a short phone, and the eye during a turn is
+  // on the board. A bot's move went past as a flicker.
+  //
+  // The board now rings the active player's own squares. That has to follow the
+  // turn exactly: the wrong seat marked is worse than none, because it would say
+  // the turn is yours when it is not.
+  it('marks the active player on the board itself', async () => {
+    mount('ludo_practice')
+
+    // seat 0 opens, so only seat 0 is ringed
+    expect(screen.queryAllByTestId('turn-ring-0').length).toBe(4)
+    expect(screen.queryAllByTestId('turn-ring-2').length).toBe(0)
+
+    await tick(1000)
+    await playTurn() // roll and move, handing the turn on
+
+    // after the move it must have followed the turn, not stayed behind
+    const zero = screen.queryAllByTestId('turn-ring-0').length
+    const two = screen.queryAllByTestId('turn-ring-2').length
+    expect(zero + two).toBeGreaterThan(0)
+    // exactly one seat is ringed at a time
+    const ringed = [0, 1, 2, 3].filter((p) => screen.queryAllByTestId(`turn-ring-${p}`).length > 0)
+    expect(ringed).toHaveLength(1)
+  })
+
+  it('stops marking anyone once the match is won', async () => {
+    await playToResult('ludo_practice')
+    expect(DONE()).toBe(true)
+    // a ring left burning over a finished board points at a game that is over
+    for (const p of [0, 1, 2, 3]) {
+      expect(screen.queryAllByTestId(`turn-ring-${p}`).length, `seat ${p} still ringed`).toBe(0)
+    }
+  })
 })
 
 async function continueToResult(spent: number) {
