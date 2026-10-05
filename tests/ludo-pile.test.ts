@@ -78,20 +78,48 @@ describe('pileLayout', () => {
   })
 
   it('spreads the centre square wider, so finished tokens read as four counters', () => {
-    // Every finished token of every player lands on CENTER. Packed tight they
-    // are one clump in the middle of the four-colour centre, so the centre is
-    // fanned out further than a track cell.
-    const tight = offsets(4).map((o) => Math.abs(o.dr))
-    const wide = offsets(4, 4.6).map((o) => Math.abs(o.dr))
-    expect(Math.max(...wide)).toBeGreaterThan(Math.max(...tight) * 3)
-    // ...but it still has to stay on the board: the centre is at row/col 7 of a
-    // 15-cell grid, so there is room either side of it.
-    for (const o of offsets(4, 4.6)) {
+    // Every finished token of every player lands on CENTER. Packed tight they are
+    // one clump in the middle of the four-colour centre, so the centre is fanned
+    // further than a track cell.
+    const tight = Math.max(...offsets(4).map((o) => Math.abs(o.dr)))
+    const wide = Math.max(...offsets(4, 2.4).map((o) => Math.abs(o.dr)))
+    expect(wide).toBeGreaterThan(tight)
+    for (const o of offsets(4, 2.4)) {
       expect(CENTER[0] + o.dr).toBeGreaterThanOrEqual(0)
       expect(CENTER[0] + o.dr).toBeLessThanOrEqual(14)
       expect(CENTER[1] + o.dc).toBeGreaterThanOrEqual(0)
       expect(CENTER[1] + o.dc).toBeLessThanOrEqual(14)
     }
+  })
+
+  // The comment above PILE_OFFSETS claimed the cluster "stays inside one cell's
+  // worth of room". It did not, and nobody noticed, because the only test of it
+  // checked the token *centre* rather than the token's edge. A token is ~0.89 of
+  // a cell across, so a centre offset of 0.2 already puts the outer edge at 0.55 -
+  // half a cell is all the room there is - and a finished piece on the centre was
+  // pushed 0.92 out, a full cell clear of its own square.
+  //
+  // That is the "the pawn is standing between two boxes and you cannot tell which
+  // square it is in" complaint, including the finish row where a token that came
+  // home appeared on the seam with its neighbour.
+  const TOKEN_CELLS = 0.89 // a track token, as a fraction of one cell
+
+  it('keeps the whole token - not just its centre - inside its own square', () => {
+    for (const spread of [1, 2.4, 4.6]) {
+      for (const n of [2, 3, 4]) {
+        for (const o of offsets(n, spread)) {
+          const reach = Math.max(Math.abs(o.dr), Math.abs(o.dc)) + TOKEN_CELLS / 2
+          expect(reach, `n=${n} spread=${spread} dr=${o.dr} dc=${o.dc}`).toBeLessThanOrEqual(0.5)
+        }
+      }
+    }
+  })
+
+  it('cannot be flung off its square by a large spread', () => {
+    // pileLayout clamps rather than trusting the caller: whatever spread is asked
+    // for, the result is the same bounded fan.
+    expect(offsets(4, 99)).toEqual(offsets(4, 4.6))
+    expect(offsets(4, 4.6)).toEqual(offsets(4, 2.4))
   })
 
   it('exposes an offset set for every pile size it can be asked for', () => {

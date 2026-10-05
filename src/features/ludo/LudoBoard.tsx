@@ -147,10 +147,15 @@ export function LudoBoard({ state, legal, onToken, youSeat = 0 }: { state: LudoS
             // a readable size. They used to be shrunk by 1/(1+(n-1)*0.22) and slid
             // along a single axis, which turned a four-high pile into one smudge
             // at 60% size; pileLayout keeps every piece separate and legible.
-            // The centre square - where every finished token of every player ends
-            // up - gets a wider fan so those four read as four counters.
+            //
+            // The centre square - where every finished token of every player ends up
+            // - asks for a wider fan, but only as a cap. It used to pass 4.6 as a
+            // multiplier, which pushed each finished piece 0.92 cells out of a
+            // square only 1 cell across: they landed on the seams around the centre
+            // and read as loose counters floating between boxes rather than as
+            // parked pieces. pileLayout now clamps to MAX_PILE_OFFSET.
             const onCentre = pos >= FINISH
-            const { dr, dc, scale } = pileLayout(n, si, onCentre ? 4.6 : 1)
+            const { dr, dc, scale } = pileLayout(n, si, onCentre ? 2.4 : 1)
             // Two sizes, because the two places a token sits have different boxes.
             // In the yard the white circle is ~0.98 cells across and the pin's
             // head has to fill it edge to edge: 7.8% puts the 74px head at 1.08

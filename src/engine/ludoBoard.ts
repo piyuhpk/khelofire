@@ -94,17 +94,47 @@ export function cellFor(p: PlayerId, pos: number, slot = 0): Cell {
 // Exported and pure so the geometry can be asserted directly in tests - this is
 // the kind of thing that is obvious in a screenshot and invisible to the type
 // checker, and it regressed silently once already.
+// Offsets are in grid cells from the square's centre, and every one of them is
+// within MAX_PILE_OFFSET below. A track token is 0.89 of a cell across, so a
+// 0.055 fan still separates four pieces by a visible margin while keeping each one
+// inside its own square.
 export const PILE_OFFSETS: Record<number, [number, number][]> = {
   1: [[0, 0]],
   // Two abreast, nudged up so the pair sits on the cell rather than straddling
   // its lower edge.
-  2: [[-0.17, -0.12], [0.17, -0.12]],
+  2: [[-0.04, -0.03], [0.04, -0.03]],
   // Triangle: two on top, one centred below.
-  3: [[-0.2, -0.2], [0.2, -0.2], [0, 0.2]],
+  3: [[-0.05, -0.05], [0.05, -0.05], [0, 0.05]],
   // Diamond: the finished-centre layout, so a centre pile and a track pile of
   // the same size look the same.
-  4: [[-0.2, -0.2], [0.2, -0.2], [-0.2, 0.2], [0.2, 0.2]],
+  4: [[-0.05, -0.05], [0.05, -0.05], [-0.05, 0.05], [0.05, 0.05]],
 }
+
+/**
+ * Width of one token, as a fraction of a grid cell.
+ *
+ * A track token renders at 5.9% of a 15-cell board, so it is 0.885 cells across -
+ * nearly a whole square. That is the number the fan has to fit around: a pile of
+ * pieces this size has barely half a cell of slack either side of centre.
+ */
+export const TOKEN_CELLS = 0.89
+
+/**
+ * Largest fan offset a pile may use, in grid cells.
+ *
+ * A pile fans out from the cell centre and a cell is 1.0 across, so the outer edge
+ * of a piece is `offset + TOKEN_CELLS/2` and it must stay within 0.5. With the old
+ * 0.2 offsets that edge landed at 0.645 - well outside the square, which is the
+ * "piece floating between two boxes" look, and why a token on the finish row
+ * appeared to sit on the seam with its neighbour instead of in its own box.
+ *
+ * The finished-centre pile was far worse: it passed a 4.6x spread, turning 0.2
+ * into 0.92, so each finished piece sat a full cell away from the centre it is
+ * supposed to be parked in.
+ *
+ * `pileLayout` clamps to this, so no caller can fling a token off its box again.
+ */
+export const MAX_PILE_OFFSET = 0.5 - TOKEN_CELLS / 2
 
 /**
  * Offsets and scale for the si-th token of an n-token pile on one square.
@@ -113,10 +143,11 @@ export const PILE_OFFSETS: Record<number, [number, number][]> = {
  * small to recognise or tap. Full size for a single token; a pile pulls in just
  * enough for the fan to fit the cell.
  *
- * `spread` widens the fan in multiples of the offset above. The centre square
- * passes a larger one: every finished token of every player lands there, and a
- * tight diamond in the middle of the four-colour centre reads as one clump
- * rather than as the four separate finished counters they are.
+ * `spread` widens the fan for the finished-centre square, where every player's
+ * four finished tokens land together. It is a *cap*, not a multiplier: the centre
+ * wants its four counters further apart than a track pile, but only up to the
+ * point where the outer token still sits inside its own square. Passing the old
+ * 4.6 is why finished pieces ended up scattered a cell away from the centre.
  */
 export function pileLayout(n: number, si: number, spread = 1): { dr: number; dc: number; scale: number } {
   const size = Math.max(1, Math.min(4, Math.round(n)))
@@ -125,5 +156,9 @@ export function pileLayout(n: number, si: number, spread = 1): { dr: number; dc:
   // 0.89 for a pair, easing to 0.67 for four. Floored at 0.66 so a pile is still
   // unmistakably four pieces rather than a blur.
   const scale = size === 1 ? 1 : Math.max(0.66, 1 - (size - 1) * 0.11)
-  return { dr: dr * spread, dc: dc * spread, scale }
+  // Bounded no matter what spread is asked for. The board has one cell of room
+  // either side of centre and a token is nearly a cell wide, so anything past
+  // MAX_PILE_OFFSET puts the outer piece on the seam with its neighbour.
+  const limit = Math.max(0, spread) <= 1 ? 1 : Math.min(spread, MAX_PILE_OFFSET / Math.max(Math.abs(dr), Math.abs(dc), 1e-6))
+  return { dr: dr * limit, dc: dc * limit, scale }
 }
