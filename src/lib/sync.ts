@@ -99,6 +99,18 @@ export async function loadUserData() {
         username: prof.username, avatar: prof.avatar, playerId: prof.player_id,
         referralCode: prof.referral_code, availableMinor: prof.available_minor,
         lockedMinor: prof.locked_minor, wins: prof.wins, losses: prof.losses, draws: prof.draws,
+        // The referral list and the amount earned from it are part of this profile,
+        // so they have to be *replaced* here like the balance is - not left as the
+        // store happened to find them.
+        //
+        // They used to be left alone, and the store's initial state is demo seed
+        // data: two named referrals and ৳40 already earned. So a brand new account,
+        // signed in for the first time, opened Profile and found referrals it had
+        // never made and ৳40 of referral income - which is the report "I have not
+        // referred anyone and it still shows". It was never the server's answer;
+        // it was the app's own placeholder, read as if it were real.
+        referrals: [],
+        referralEarnedMinor: 0,
       })
     }
 
