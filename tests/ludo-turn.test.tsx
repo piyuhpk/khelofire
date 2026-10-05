@@ -6,9 +6,16 @@ import type { Outcome } from '../src/lib/store'
 // The component reaches for supabase-backed realtime chat/voice and the wallet
 // store. Stub the edges so we are testing the turn machinery, not the network.
 const settle = vi.fn<(r: { game: string; modeId: string; outcome: Outcome }) => void>()
+// How many times settle() has run. Sampled from the play loop, not from inside the
+// mock: the question is whether the modal has caught up by the time control returns
+// to the loop, not what the DOM happened to look like mid-callback.
+let settleCount = 0
 vi.mock('../src/lib/store', () => ({
   useStore: (sel: (s: Record<string, unknown>) => unknown) =>
-    sel({ settle: (...a: Parameters<typeof settle>) => settle(...a), username: 'Tester', avatar: 'ðŸ˜€' }),
+    sel({
+      settle: (...a: Parameters<typeof settle>) => { settleCount++; settle(...a) },
+      username: 'Tester', avatar: 'ðŸ˜€',
+    }),
 }))
 vi.mock('../src/i18n', () => ({
   useT: () => (k: string) => k,
@@ -79,8 +86,35 @@ async function playToResult(modeId: string, budgetMs = 1_200_000) {
   return spent
 }
 
+/**
+ * Same game, but on 50ms ticks, recording for every settle whether the modal was
+ * already up by the time that tick finished.
+ *
+ * The step size is the whole point. The result modal is held back ~900ms, so a
+ * 1000ms tick cannot tell "the payout did not wait for the animation" from "both
+ * fired inside one tick, 900ms late" - it only sees that a modal exists by the
+ * end. 50ms resolves the window.
+ */
+async function playToResultWatchingSettle(modeId: string, maxIterations = 4000) {
+  mount(modeId)
+  const modalUpWhenSettled: boolean[] = []
+  let seen = 0
+  for (let i = 0; i < maxIterations && !DONE(); i++) {
+    await tick(50)
+    if (settleCount > seen) {
+      // settle fired during this tick; the modal has not been given its 900ms yet
+      modalUpWhenSettled.push(DONE())
+      seen = settleCount
+    }
+    if (DONE()) break
+    await playTurn()
+  }
+  return modalUpWhenSettled
+}
+
 beforeEach(() => {
   settle.mockClear()
+  settleCount = 0
   // reset first, then re-arm: setSystemTime is only legal while the clock is
   // mocked. a test that dies mid-loop leaves pending timers and a skewed clock
   // behind, which then breaks the next test's very first assertion.
@@ -121,6 +155,24 @@ describe('Ludo turn machinery', () => {
     expect(DONE()).toBe(true)
     expect(settle).toHaveBeenCalledTimes(1)
   })
+
+  it('pays out before it shows the result modal', async () => {
+    const modalUpWhenSettled = await playToResultWatchingSettle('ludo_practice')
+    expect(DONE()).toBe(true)
+    expect(settle).toHaveBeenCalledTimes(1)
+    // Settling must not be what waits on the animation. The modal is held back so
+    // the player sees the end of the board; the settle used to be held back by that
+    // same timeout, so the money only moved if the app was still alive a second and
+    // a half after the win - and closing the app after winning is the ordinary
+    // thing to do. On a real match the server was not told to settle until then
+    // either, so the entry stays debited with nothing to show for it and the win
+    // reads as a loss.
+    //
+    // true here means the modal was already up in the same tick the payout fired,
+    // i.e. both had been waiting on the one timeout.
+    expect(modalUpWhenSettled).toEqual([false])
+  })
+
 
   // The clock used to cover only the pre-roll phase, so rolling and then walking
   // away left the turn waiting on a token pick that nothing would ever force.

@@ -80,6 +80,17 @@ export async function loadUserData() {
   const me = uid
   hydrating = true
   try {
+    // Before the profile is read, because it changes what the profile says. A match
+    // that finished while this player's app was closed was never settled - the
+    // settle is something the client asks for, so if nobody was awake to ask, the
+    // entry they paid stays debited and their history reads as a loss. Sweeping
+    // those first means the balance and the match list below are already correct
+    // by the time they are rendered, instead of being wrong until the next sign-in.
+    //
+    // Best-effort and silent on failure: it is a repair, not a read. A player whose
+    // sweep fails still gets their profile, and the next sign-in tries again.
+    await live.reconcileFinishedMatches().catch(() => 0)
+
     const { data: prof, error: profErr } = await supabase
       .from('profiles').select('*').eq('id', me).maybeSingle()
     if (profErr) throw new Error(profErr.message)

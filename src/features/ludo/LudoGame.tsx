@@ -23,7 +23,7 @@ import spin6 from '../../assets/ludoking/dice0006.png'
 import spin7 from '../../assets/ludoking/dice0007.png'
 import spin8 from '../../assets/ludoking/dice0008.png'
 import gameBg from '../../assets/ludoking/backgroundmaze.jpeg'
-import { initLudo, legalTokens, applyMove, rollDice, botChoose, nextActive, COLORS, COLOR_NAME, FINISH, type LudoState, type PlayerId } from '../../engine/ludo'
+import { initLudo, legalTokens, applyMove, rollDice, botChoose, nextActive, wonBySeat, COLORS, COLOR_NAME, FINISH, type LudoState, type PlayerId } from '../../engine/ludo'
 
 const BOT_NAMES = ['—', 'Rahim', 'Sakib', 'Tanvir']
 
@@ -250,23 +250,29 @@ export default function LudoGame() {
     // match join_live_match seats a 1v1 opponent at engine seat 2 and a 4p table
     // uses 1/2/3, so the joiner of every paid match had its own client declare
     // the win a loss - while the result modal a few lines down counted its home
-    // pieces from yourSeat and contradicted it.
-    const outcome: Outcome = st.winner === yourSeat ? 'win' : 'loss'
-    setTimeout(() => {
-      if (matchId) {
-        // A paid match must be settled by the server, which already knows the
-        // entry and prize it debited and refuses to pay twice. settle() only
-        // added the prize to the local store, so the winner saw a balance the
-        // server never granted (gone on next reload) and settle_match was
-        // effectively never called by anything except the broken resign button.
-        void settleMatch(matchId, outcome)
-          .catch((e) => toast(e instanceof Error ? e.message : 'Settlement failed', 'err'))
-          .finally(() => setResult(outcome))
-        return
-      }
-      settle({ game: 'ludo', mode: t(m!.nameKey as any), modeId: m!.id, entryMinor: m!.entryMinor, prizeMinor: m!.prizeMinor, outcome, deltaMinor: outcome === 'win' ? m!.prizeMinor - m!.entryMinor : -m!.entryMinor })
-      setResult(outcome)
-    }, 900)
+    // pieces from yourSeat and contradicted it. The rule itself is in the engine
+    // now (wonBySeat) with every seat pair tested, so it cannot drift back.
+    const outcome: Outcome = wonBySeat(st.winner, yourSeat) ? 'win' : 'loss'
+    // Settle FIRST, show the modal second. It used to sit inside the 900ms timeout
+    // below, which meant the money only moved if this screen was still alive a
+    // second and a half after the win - and the ordinary thing a player does after
+    // winning is close the app. The delay is there for the modal to land on a board
+    // the player can still see the end of; it was never a reason to postpone paying
+    // them. reconcileFinishedMatches() in lib/live.ts is the backstop for a settle
+    // that is interrupted anyway.
+    if (matchId) {
+      // A paid match must be settled by the server, which already knows the
+      // entry and prize it debited and refuses to pay twice. settle() only
+      // added the prize to the local store, so the winner saw a balance the
+      // server never granted (gone on next reload) and settle_match was
+      // effectively never called by anything except the broken resign button.
+      void settleMatch(matchId, outcome)
+        .catch((e) => toast(e instanceof Error ? e.message : 'Settlement failed', 'err'))
+        .finally(() => setResult(outcome))
+      return
+    }
+    settle({ game: 'ludo', mode: t(m!.nameKey as any), modeId: m!.id, entryMinor: m!.entryMinor, prizeMinor: m!.prizeMinor, outcome, deltaMinor: outcome === 'win' ? m!.prizeMinor - m!.entryMinor : -m!.entryMinor })
+    setTimeout(() => setResult(outcome), 900)
   }, [st.winner]) // eslint-disable-line
 
   // Turn countdown. It has to cover the WHOLE turn, not just the pre-roll

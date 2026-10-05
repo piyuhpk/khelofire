@@ -51,6 +51,22 @@ export const ringAbs = (p: PlayerId, pos: number): number | null =>
 
 export const rollDice = () => 1 + Math.floor(Math.random() * 6)
 
+/**
+ * Did the player at `yourSeat` win the match?
+ *
+ * `winner` is a seat, not "the human". Writing this as `winner === 0` looks right
+ * in a local game and is wrong everywhere else: join_live_match seats a 1v1
+ * opponent at engine seat 2 and a 4p table at 1/2/3, so the joiner of a paid
+ * match is not seat 0. With the comparison pinned to 0, every such player's own
+ * win was reported as a loss - the money was right and the screen said otherwise,
+ * which is worse than either being wrong on its own.
+ *
+ * null while nobody has won, so a caller cannot accidentally treat an unfinished
+ * match as a loss.
+ */
+export const wonBySeat = (winner: PlayerId | null, yourSeat: PlayerId): boolean =>
+  winner !== null && winner === yourSeat
+
 /** next active player after `p`, following the fixed seating order */
 export function nextActive(s: LudoState, p: PlayerId): PlayerId {
   const order = s.players

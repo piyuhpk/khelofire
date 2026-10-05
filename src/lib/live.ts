@@ -380,6 +380,66 @@ export async function sendAction(
 export const readState = (matchId: string): Promise<LiveGameState> => sendAction(matchId, 'state')
 
 /**
+ * Settle any match of mine that finished without ever being settled.
+ *
+ * Why this is needed: settling a finished match is something the *client* asks
+ * the server to do, right after it sees the winner. The server refuses to settle
+ * anything it has not already decided, and it decides the winner by itself - so
+ * the money is only ever moved if somebody's app is alive at that moment.
+ *
+ * That is a real hole, not a theoretical one. The ordinary thing a player does
+ * after winning a paid match is close the app. Android kills the WebView, the
+ * in-flight settle_match never lands, and the entry they paid at the start stays
+ * debited with nothing to show for it. Their wallet and their match history both
+ * read exactly like a loss - which is what "I won and it still gave me a loss"
+ * looks like from the outside. Nothing else in the app will ever notice: the
+ * match is 'finished', so it is not an orphan lock to release, and no client
+ * holds a pending call for it.
+ *
+ * So the fix has to be a sweep rather than a retry. It runs on sign-in:
+ *   - find every match of mine the server says is 'finished'
+ *   - ask settle_match to settle each one
+ *   - settle_match is idempotent (it inserts the settlement row first and only
+ *     moves money if that insert actually happened), so a match that was already
+ *     settled returns duplicate:true and pays nothing. Re-running this on every
+ *     sign-in is safe by construction rather than by bookkeeping.
+ *
+ * p_outcome is 'win' here and is ignored by the database on purpose - see
+ * settleMatch. What decides the result is winner_seat on the match row.
+ */
+export async function reconcileFinishedMatches(): Promise<number> {
+  requireSupabase()
+  const { data: usr, error: userErr } = await supabase!.auth.getUser()
+  const me = usr?.user?.id
+  if (userErr || !me) return 0
+
+  const { data: seats, error: seatErr } = await supabase!
+    .from('live_match_seats').select('match_id').eq('user_id', me)
+  if (seatErr) throw new LiveError(seatErr.message, 'reconcile_failed')
+  const ids = [...new Set(((seats ?? []) as { match_id: string }[]).map((s) => s.match_id))]
+  if (!ids.length) return 0
+
+  const { data: rows, error: mErr } = await supabase!
+    .from('live_matches').select('id, status').in('id', ids).eq('status', 'finished')
+  if (mErr) throw new LiveError(mErr.message, 'reconcile_failed')
+
+  let done = 0
+  for (const r of (rows ?? []) as { id: string }[]) {
+    // One failure must not stop the sweep: these are independent matches, and the
+    // next sign-in will try again. settle_match re-checks the winner itself, so a
+    // match that was decided for some other reason reports as duplicate or refuses,
+    // and neither is worth surfacing.
+    try {
+      await settleMatch(r.id, 'win')
+      done++
+    } catch {
+      /* left for the next sweep */
+    }
+  }
+  return done
+}
+
+/**
  * Credit this player's wallet for a finished match.
  *
  * `p_outcome` is accepted for signature compatibility and then thrown away by the
