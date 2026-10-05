@@ -189,6 +189,38 @@ const spent = await continueToResult(20_000)
 expect(DONE()).toBe(true)
 expect(spent).toBeLessThan(600_000)
   })
+
+  // Every token's position is built as a CSS length at the render site, and that
+  // is where it went wrong once: a stray second '%' produced "3.33%%", which is
+  // not a length, so jsdom dropped the declaration and left every token at its
+  // default position - the whole pile collapsed into one corner of the board. The
+  // geometry helper was provably correct and the board was still broken, so this
+  // asserts on the rendered element rather than on the helper.
+  //
+  // A pile and four separate tokens go through the same line, so checking that
+  // every token lands somewhere real and distinct covers both; pileLayout's own
+  // fan is covered in tests/ludo-pile.test.ts.
+  it('gives every token a real, distinct position on the board', async () => {
+    mount('ludo_practice')
+
+    const tokens = screen.getAllByRole('button', { name: /^token \d-/ })
+    expect(tokens.length).toBeGreaterThanOrEqual(4)
+
+    const cells = new Set<string>()
+    for (const t of tokens) {
+      const label = t.getAttribute('aria-label')
+      const s = (t as HTMLElement).style
+      // A length jsdom could not parse is discarded, leaving these empty.
+      expect(s.left, `${label} has no left`).not.toBe('')
+      expect(s.top, `${label} has no top`).not.toBe('')
+      expect(s.left, `${label} left is not a length`).not.toMatch(/%%|undefined|NaN/)
+      expect(s.top, `${label} top is not a length`).not.toMatch(/%%|undefined|NaN/)
+      cells.add(`${s.left}|${s.top}`)
+    }
+    // four waiting reds sit in four separate yard slots, so nothing may share a
+    // position - a collapsed pile shows up here as a size of one
+    expect(cells.size).toBe(tokens.length)
+  })
 })
 
 async function continueToResult(spent: number) {

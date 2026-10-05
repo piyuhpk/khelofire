@@ -1,4 +1,4 @@
-import { PATH, cellFor } from '../../engine/ludoBoard'
+import { PATH, cellFor, pileLayout } from '../../engine/ludoBoard'
 import { START_OFFSET, FINISH, type LudoState, type PlayerId } from '../../engine/ludo'
 import boardArt from '../../assets/ludoking/ludofinalboard2.png'
 import redPiece from '../../assets/ludoking/redpiece.png'
@@ -39,17 +39,14 @@ function PinToken({ p, dim = false }: { p: PlayerId; dim?: boolean }) {
 }
 
 export function LudoBoard({ state, legal, onToken, youSeat = 0 }: { state: LudoState; legal: number[]; onToken: (i: number) => void; youSeat?: PlayerId }) {
+  // Group tokens by the square they sit on. The pile's own offsets are applied
+  // at render time from pileLayout(), so a token that just finished and one
+  // sitting in the yard are laid out by exactly the same rule.
   const tokenAt: Record<string, { p: PlayerId; i: number; pos: number }[]> = {}
-  // Finished tokens all share the single centre square. Fanning them out by
-  // token index keeps all four visible instead of burying three under one.
-  const FINISHED_SLOT: Record<number, [number, number]> = {
-    0: [-0.95, -0.95], 1: [0.95, -0.95], 2: [-0.95, 0.95], 3: [0.95, 0.95],
-  }
   state.players.forEach((p) =>
     state.tokens[p].forEach((pos, i) => {
-      let [r, c] = cellFor(p, pos, i)
-      if (pos >= FINISH) { r += FINISHED_SLOT[i][0]; c += FINISHED_SLOT[i][1] }
-      ;(tokenAt[`${r.toFixed(2)},${c.toFixed(2)}`] ||= []).push({ p, i, pos })
+      const [r, c] = cellFor(p, pos, i)
+      ;(tokenAt[`${r},${c}`] ||= []).push({ p, i, pos })
     })
   )
 
@@ -94,6 +91,7 @@ export function LudoBoard({ state, legal, onToken, youSeat = 0 }: { state: LudoS
       }}
     >
       <div
+        data-testid="ludoboard"
         className="relative aspect-square w-full overflow-hidden"
         style={{
           borderRadius: 14,
@@ -145,11 +143,14 @@ export function LudoBoard({ state, legal, onToken, youSeat = 0 }: { state: LudoS
             // in, defaulting to 0 so a local game needs no prop.
             const isLegal = p === youSeat && p === state.turn && legal.includes(i)
             const n = list.length
-            // Two or more tokens on one square are shrunk and fanned out. They
-            // used to sit on the exact same pixel, so a pile read as one piece and
-            // the rest of the pile was invisible.
-            const scale = n > 1 ? 1 / (1 + (n - 1) * 0.22) : 1
-            const spread = (si - (n - 1) / 2) * (n > 2 ? 0.46 : 0.42)
+            // Two or more tokens on one square are fanned out in two dimensions at
+            // a readable size. They used to be shrunk by 1/(1+(n-1)*0.22) and slid
+            // along a single axis, which turned a four-high pile into one smudge
+            // at 60% size; pileLayout keeps every piece separate and legible.
+            // The centre square - where every finished token of every player ends
+            // up - gets a wider fan so those four read as four counters.
+            const onCentre = pos >= FINISH
+            const { dr, dc, scale } = pileLayout(n, si, onCentre ? 4.6 : 1)
             // Two sizes, because the two places a token sits have different boxes.
             // In the yard the white circle is ~0.98 cells across and the pin's
             // head has to fill it edge to edge: 7.8% puts the 74px head at 1.08
@@ -179,9 +180,13 @@ export function LudoBoard({ state, legal, onToken, youSeat = 0 }: { state: LudoS
                 className={`absolute ${isLegal ? 'z-20 cursor-pointer' : 'z-10'}`}
                 style={{
                   // anchored to the MIDDLE of the square, not its top edge - this is
-                  // what made pieces look detached from their cell
-                  left: `calc(${pct(c)} + ${pct(0.5)} + ${spread * (100 / N)}%)`,
-                  top: `calc(${pct(r)} + ${pct(0.5)})`,
+                  // what made pieces look detached from their cell. dr/dc then fan a
+                  // pile outward from that centre in both axes, in grid cells.
+                  // pct() already carries the %, and both terms are plain numbers, so
+                  // the sum stays a valid calc() even when an offset pushes a token
+                  // past the centre.
+                  left: `calc(${pct(c)} + ${pct(0.5 + dc)})`,
+                  top: `calc(${pct(r)} + ${pct(0.5 + dr)})`,
                   width: `${w}%`, height: `${h}%`,
                   transform: `translate(-50%, ${ty})`,
                   background: 'transparent', border: 'none', padding: 0,

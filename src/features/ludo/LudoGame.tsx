@@ -581,10 +581,10 @@ const roll = () => {
           style={{ background: 'linear-gradient(180deg,#1B6FD0 0%,#1257A8 55%,#0D488E 100%)', border: '2.5px solid #FFD466', boxShadow: '0 10px 26px -10px rgba(0,0,0,.75), inset 0 1px 0 rgba(255,255,255,.25)' }}>
           {/* You */}
           <div className="flex min-w-0 flex-1 items-center gap-2">
-            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-base text-white" style={{ background: COLORS[0], border: '2px solid #fff', boxShadow: '0 2px 5px rgba(0,0,0,.4)' }}>{avatar}</div>
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-lg text-base text-white" style={{ background: COLORS[yourSeat], border: '2px solid #fff', boxShadow: '0 2px 5px rgba(0,0,0,.4)' }}>{avatar}</div>
             <div className="min-w-0">
               <div className="truncate text-[13px] font-extrabold leading-none text-white">{username}</div>
-              <div className="mt-1 flex gap-1">{[0, 1, 2, 3].map((k) => <span key={k} className="h-1.5 w-1.5 rounded-full" style={{ background: k < homeCount(0) ? '#FFD466' : 'rgba(255,255,255,.35)' }} />)}</div>
+              <div className="mt-1 flex gap-1">{[0, 1, 2, 3].map((k) => <span key={k} className="h-1.5 w-1.5 rounded-full" style={{ background: k < homeCount(yourSeat) ? '#FFD466' : 'rgba(255,255,255,.35)' }} />)}</div>
             </div>
           </div>
 

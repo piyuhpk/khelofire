@@ -73,3 +73,57 @@ export function cellFor(p: PlayerId, pos: number, slot = 0): Cell {
   if (pos >= 52 && pos <= 57) return HOME_COL[p][pos - 52]
   return CENTER
 }
+
+// ---------------------------------------------------------------------------
+// Multi-token pile geometry.
+//
+// Three or four tokens of one colour can legitimately share a single square -
+// the yard at the start, a safe cell on the ring, a token that came home onto an
+// occupied centre, or two blocks stacked in the home column. The old renderer
+// dealt with that by shrinking every token by 1/(1+(n-1)*0.22) and sliding them
+// along ONE axis, so a four-high pile was four identical pins in a row at 60%
+// size: they overlapped each other, spilled into the neighbouring cells, and the
+// pile read as a single smudge instead of four separate counters.
+//
+// These offsets fan a pile in two dimensions at a readable size instead. Offsets
+// are in grid cells, relative to the square's centre, and are chosen so the whole
+// cluster stays inside one cell's worth of room while every token still reads as
+// its own piece. n is clamped to 4: a player owns exactly four tokens, so that is
+// the largest pile that can ever exist.
+//
+// Exported and pure so the geometry can be asserted directly in tests - this is
+// the kind of thing that is obvious in a screenshot and invisible to the type
+// checker, and it regressed silently once already.
+export const PILE_OFFSETS: Record<number, [number, number][]> = {
+  1: [[0, 0]],
+  // Two abreast, nudged up so the pair sits on the cell rather than straddling
+  // its lower edge.
+  2: [[-0.17, -0.12], [0.17, -0.12]],
+  // Triangle: two on top, one centred below.
+  3: [[-0.2, -0.2], [0.2, -0.2], [0, 0.2]],
+  // Diamond: the finished-centre layout, so a centre pile and a track pile of
+  // the same size look the same.
+  4: [[-0.2, -0.2], [0.2, -0.2], [-0.2, 0.2], [0.2, 0.2]],
+}
+
+/**
+ * Offsets and scale for the si-th token of an n-token pile on one square.
+ *
+ * The scale shrinks only gently, and is floored so a token never becomes too
+ * small to recognise or tap. Full size for a single token; a pile pulls in just
+ * enough for the fan to fit the cell.
+ *
+ * `spread` widens the fan in multiples of the offset above. The centre square
+ * passes a larger one: every finished token of every player lands there, and a
+ * tight diamond in the middle of the four-colour centre reads as one clump
+ * rather than as the four separate finished counters they are.
+ */
+export function pileLayout(n: number, si: number, spread = 1): { dr: number; dc: number; scale: number } {
+  const size = Math.max(1, Math.min(4, Math.round(n)))
+  const offs = PILE_OFFSETS[size]
+  const [dr, dc] = offs[Math.max(0, Math.min(size - 1, si))]
+  // 0.89 for a pair, easing to 0.67 for four. Floored at 0.66 so a pile is still
+  // unmistakably four pieces rather than a blur.
+  const scale = size === 1 ? 1 : Math.max(0.66, 1 - (size - 1) * 0.11)
+  return { dr: dr * spread, dc: dc * spread, scale }
+}
