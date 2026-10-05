@@ -214,6 +214,18 @@ interface DemoState {
   setDepositStatus: (id: string, status: Deposit['status']) => Promise<void>
   /** staff queue refresh: merge the server's pending rows into the local mirror */
   setPendingRequests: (rows: { deposits: PendingRow[]; withdrawals: PendingRow[] }) => void
+  /**
+   * Re-fetch the staff request queue from the server and merge it in.
+   *
+   * Separate from setPendingRequests because that one only merges - it never
+   * fetches. The admin panel had no way to ask for fresh rows at all, so a payment
+   * made on a phone stayed invisible until the app was reopened. Rejects and
+   * approvals made in another tab were the same: the local row kept saying
+   * "pending" after the server had already decided it, and the next tap silently
+   * did nothing.
+   */
+  reloadPendingRequests: () => Promise<void>
+
   unlockEntry: (minor: number, note: string) => void
   withdraw: (taka: number, method?: string, account?: string) => Promise<boolean>
   setWithdrawalStatus: (id: string, status: Withdrawal['status']) => Promise<void>
@@ -517,9 +529,25 @@ export const useStore = create<DemoState>()(
           })),
         }))
       },
+      reloadPendingRequests: async () => {
+        if (!liveMode) return
+        const rows = await wallet.fetchPendingRequests()
+        get().setPendingRequests(rows)
+      },
+
       setDepositStatus: async (id, status) => {
         const d = get().deposits.find((x) => x.id === id)
-        if (!d || d.status !== 'pending') return
+        // Was a silent `return`. Approving or rejecting a row that is no longer
+        // pending does nothing at all and says nothing either, so the button in the
+        // admin looked broken: it did not work and it did not explain itself. This
+        // is a real state the admin can reach - the list is only fetched on
+        // sign-in, so a row decided in another tab, or on a phone, is still
+        // showing as pending here - so it is worth one line of explanation.
+        if (!d) { notify('That request is no longer in the list', 'err'); return }
+        if (d.status !== 'pending') {
+          notify(`Already ${d.status} - reload the list to see it`, 'err')
+          return
+        }
         if (!liveMode) {
           if (status === 'approved') {
             const bonusPct = get().bonusConfig.depositPct || 0
@@ -592,7 +620,12 @@ export const useStore = create<DemoState>()(
       },
       setWithdrawalStatus: async (id, status) => {
         const w = get().withdrawals.find((x) => x.id === id)
-        if (!w || w.status !== 'pending') return
+        // Same silent return as setDepositStatus - see the note there.
+        if (!w) { notify('That request is no longer in the list', 'err'); return }
+        if (w.status !== 'pending') {
+          notify(`Already ${w.status} - reload the list to see it`, 'err')
+          return
+        }
         if (!liveMode) {
           if (status === 'approved') {
             set((s) => ({

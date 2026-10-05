@@ -186,7 +186,7 @@ export default function Admin() {
   const withdrawals = useStore((s) => s.withdrawals)
   const deposits = useStore((s) => s.deposits)
   const { setUserStatus, deleteUser, adjustUserBalance, postAnnouncement, addBanner, removeBanner, toggleBanner, setBonusConfig, setPaymentConfig, setSiteConfig, setAdminSettings,
-    addAdminUser, updateAdminRole, createAdminRole, adminReplyTicket, setTicketStatus, logAdminActivity, setWithdrawalStatus, setDepositStatus, setCategoryImage, removeCategoryImage, setGameModeImage, removeGameModeImage, adminLogout } = useStore.getState()
+    addAdminUser, updateAdminRole, createAdminRole, adminReplyTicket, setTicketStatus, logAdminActivity, setWithdrawalStatus, setDepositStatus, setCategoryImage, removeCategoryImage, setGameModeImage, removeGameModeImage } = useStore.getState()
 
   // live sign-ups: hydrate existing profiles + listen for INSERTs in realtime
   // (works after supabase/schema.sql is run in the dashboard)
@@ -207,6 +207,53 @@ export default function Admin() {
       .subscribe()
     return () => { sb.removeChannel(ch) }
   }, [])
+
+  // The request queue, live.
+  //
+  // The list_pending_requests RPC is only fetched on sign-in, so a payment made on
+  // a phone - the normal way money arrives - did not appear in this panel until
+  // the admin closed and reopened the app, or reloaded. Approving it then looked
+  // broken: the row was simply not there yet. `decide_deposit` needs the real
+  // request id, which only that RPC can supply, so this cannot be faked locally.
+  //
+  // Three things make it show up without a reload:
+  //   1. a realtime INSERT on the money tables
+  //   2. the same INSERT arriving through the broker as a fallback, for a project
+  //      where replication is not switched on
+  //   3. a slow poll, which is what actually covers the case where neither works -
+  //      notably on a phone that has been backgrounded and lost its socket
+  const reloadRequests = useStore((s) => s.reloadPendingRequests)
+  useEffect(() => {
+    if (!hasSupabase || !supabase) return
+    let alive = true
+
+    const pull = async () => {
+      if (!alive) return
+      try {
+        await reloadRequests()
+      } catch {
+        /* the poll is a background nicety; a failure must not surface as an error */
+      }
+    }
+
+    const sb = supabase
+    const ch = sb.channel('admin-requests-feed')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'deposits' }, () => { void pull() })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'withdrawals' }, () => { void pull() })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'deposits' }, () => { void pull() })
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'withdrawals' }, () => { void pull() })
+      .subscribe()
+    // a broker event can arrive before or instead of the INSERT, so refresh on
+    // connection too - this is what covers an admin opening the panel mid-queue
+    void pull()
+    const poll = window.setInterval(() => { void pull() }, 15000)
+
+    return () => {
+      alive = false
+      window.clearInterval(poll)
+      sb.removeChannel(ch)
+    }
+  }, [reloadRequests])
 
   // local ui state
   const [q, setQ] = useState('')
@@ -300,7 +347,12 @@ export default function Admin() {
         </button>
         <span className="grid h-9 w-9 place-items-center rounded-xl text-white shadow-glow" style={{ backgroundImage: 'var(--grad-cyan)' }}><Wrench className="h-4 w-4" strokeWidth={2.2} /></span>
         <h1 className="font-display text-lg font-extrabold">Admin</h1>
-        <button onClick={() => { adminLogout(); nav('/') }} className="chip ml-auto text-[11px] font-bold text-danger" style={{ background: 'rgba(255,92,105,.12)' }}>Lock</button>
+        {/* The Lock button was removed on request. It called adminLogout(), which
+            only cleared the local admin session and sent you back to the front -
+            it did not sign the account out, and it looked like a real security
+            control while doing nothing of the kind. Anyone holding an unlocked
+            phone could get back in by reloading. To actually end the session on
+            this device, sign out from Profile. */}
       </div>
 
       {/* tabs */}
