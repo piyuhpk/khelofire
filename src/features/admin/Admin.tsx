@@ -189,6 +189,21 @@ export default function Admin() {
   const { setUserStatus, deleteUser, adjustUserBalance, postAnnouncement, addBanner, removeBanner, toggleBanner, setBonusConfig, setPaymentConfig, setSiteConfig, setAdminSettings,
     addAdminUser, updateAdminRole, createAdminRole, adminReplyTicket, setTicketStatus, logAdminActivity, setWithdrawalStatus, setDepositStatus, setCategoryImage, removeCategoryImage, setGameModeImage, removeGameModeImage } = useStore.getState()
 
+  // The screenshot a player attached to a deposit, fetched when it is opened
+  // rather than with the queue - see getDepositProof in the store for why.
+  const [proofFor, setProofFor] = useState<string | null>(null)
+  const [proofImg, setProofImg] = useState<string | null>(null)
+  const [proofBusy, setProofBusy] = useState(false)
+  const openProof = async (id: string) => {
+    if (proofFor === id) { setProofFor(null); setProofImg(null); return }
+    setProofFor(id); setProofImg(null); setProofBusy(true)
+    try {
+      setProofImg(await useStore.getState().getDepositProof(id))
+    } finally {
+      setProofBusy(false)
+    }
+  }
+
   // live sign-ups: hydrate existing profiles + listen for INSERTs in realtime
   // (works after supabase/schema.sql is run in the dashboard)
   useEffect(() => {
@@ -838,6 +853,30 @@ export default function Admin() {
                 <div className="tnum text-sm font-extrabold text-emerald2">{fmt(d.amountMinor)}</div>
                 <span className="chip text-[10px] font-bold" style={d.status === 'pending' ? { background: 'rgba(255,212,102,.15)', color: 'var(--gold)' } : d.status === 'approved' ? { background: 'rgba(31,203,139,.15)', color: 'var(--emerald)' } : { background: 'rgba(255,92,105,.15)', color: 'var(--danger)' }}>{d.status}</span>
               </div>
+              {/* The picture the player says is their payment. It is the reason
+                  this approval is not a guess, so it sits above the two buttons
+                  that decide the money. The queue payload carries only
+                  `has_proof` - one boolean - and the image is fetched by id when
+                  it is opened, because the queue is read on every tab change. */}
+              <div className="mt-2 flex items-center gap-2">
+                {d.hasProof || d.proof ? (
+                  <button onClick={() => void openProof(d.id)} data-testid="proof-toggle"
+                    className="btn-ghost px-2 py-1 text-[11px]">
+                    <Image className="h-3.5 w-3.5" /> {proofFor === d.id ? t('common.close') : t('admin.viewScreenshot')}
+                  </button>
+                ) : d.status === 'pending' ? (
+                  <span className="text-[11px] text-muted">{t('admin.noScreenshot')}</span>
+                ) : null}
+                {proofBusy && proofFor === d.id && <span className="text-[11px] text-muted">…</span>}
+              </div>
+              {proofFor === d.id && (
+                <div className="mt-2">
+                  {proofImg
+                    ? <img src={proofImg} alt={t('admin.viewScreenshot')} data-testid="proof-image"
+                        className="max-h-64 w-full rounded-lg object-contain" style={{ background: 'rgba(255,255,255,.6)' }} />
+                    : !proofBusy && <p className="text-[11px] text-muted">{t('admin.noScreenshot')}</p>}
+                </div>
+              )}
               {d.status === 'pending' && (
                 <div className="mt-2 flex gap-2">
                   <button onClick={() => { setDepositStatus(d.id, 'approved'); toast('Deposited ✓', 'ok') }} className="btn-emerald flex-1 py-2 text-xs"><CheckCircle2 className="h-4 w-4" />Payment received · Credit</button>

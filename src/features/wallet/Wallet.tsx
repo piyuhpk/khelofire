@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ChangeEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { Wallet as WalletIcon, Plus, Landmark, ReceiptText, ShieldCheck, Copy, X, Check } from 'lucide-react'
+import { Wallet as WalletIcon, Plus, Landmark, ReceiptText, ShieldCheck, Copy, X, Check, ImagePlus } from 'lucide-react'
 import { useT } from '../../i18n'
 import { useStore, type TxnStatus } from '../../lib/store'
 import { hasSupabase as liveMode } from '../../lib/supabase'
 import { fmt } from '../../lib/money'
+import { readProofDataUrl, PROOF_NOT_IMAGE, PROOF_TOO_LARGE } from '../../lib/proofImage'
 import { useToast, EmptyState, ListSkeleton, useReady, Modal } from '../../ui/components'
 
 // demo merchant numbers — replace with real ones from Admin → Payments
@@ -65,6 +66,32 @@ export default function Wallet() {
   const [checkout, setCheckout] = useState(false)
   const [payStep, setPayStep] = useState<'pay' | 'done'>('pay')
   const mStyle = METHOD_STYLE[method] || METHOD_STYLE.bKash
+  // The screenshot of the payment itself. Mandatory: request_deposit refuses a
+  // request without one, so this is the same rule expressed where the player can
+  // still act on it - a button that fails with a server error after they have
+  // filled everything in is a rule discovered too late.
+  const [proof, setProof] = useState<string | null>(null)
+  const [proofErr, setProofErr] = useState('')
+  const [readingProof, setReadingProof] = useState(false)
+
+  const onProofFile = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    // cleared so picking the same picture twice after removing it fires again
+    e.target.value = ''
+    if (!file) return
+    setProofErr('')
+    setReadingProof(true)
+    try {
+      setProof(await readProofDataUrl(file))
+    } catch (err) {
+      setProof(null)
+      const m = err instanceof Error ? err.message : ''
+      setProofErr(m === PROOF_NOT_IMAGE ? t('wallet.screenshotBad') : m === PROOF_TOO_LARGE ? t('wallet.screenshotTooBig') : t('error.generic'))
+    } finally {
+      setReadingProof(false)
+    }
+  }
+  const resetProof = () => { setProof(null); setProofErr(''); setReadingProof(false) }
 
   const submit = async () => {
     const n = Number(amt)
@@ -79,9 +106,10 @@ export default function Wallet() {
   }
   // Pay Now → deposit REQUEST (pending) — admin panel approves, then credited
   const payNow = async () => {
-    if (!(await addMoney(Number(amt), method, txnRef))) { setCheckout(false); return toast(t('error.generic'), 'err') }
+    if (!proof) { setProofErr(t('wallet.needScreenshot')); return }
+    if (!(await addMoney(Number(amt), method, txnRef, proof))) { setCheckout(false); return toast(t('error.generic'), 'err') }
     setPayStep('done')
-    setTimeout(() => { setCheckout(false); setAmt(''); setTxnRef('') }, 1600)
+    setTimeout(() => { setCheckout(false); setAmt(''); setTxnRef(''); resetProof() }, 1600)
   }
   const copyPay = () => {
     navigator.clipboard?.writeText(payNumber.replace(/-/g, ''))
@@ -233,9 +261,40 @@ export default function Wallet() {
                 <div className="flex justify-between"><span className="text-muted">Type</span><span className="font-bold">Send Money</span></div>
                 <div className="flex justify-between"><span className="text-muted">Reference</span><span className="tnum font-bold">KV-{String(Date.now()).slice(-6)}</span></div>
               </div>
+              {/* The screenshot of the payment. This is the last thing before the
+                  button, and the button will not go without it - the request
+                  carries the picture to the admin, who approves the money. */}
+              <div className="space-y-1.5 rounded-xl bg-black/5 p-3 text-left text-[12px]">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-bold">{t('wallet.screenshot')}</span>
+                  {proof && <span className="font-bold" style={{ color: '#1FCB8B' }}>{t('wallet.screenshotAttached')}</span>}
+                </div>
+                {proof ? (
+                  <div className="relative">
+                    <img src={proof} alt={t('wallet.screenshot')} data-testid="proof-preview"
+                      className="max-h-40 w-full rounded-lg bg-white object-contain" />
+                    <button onClick={resetProof} aria-label="remove screenshot"
+                      className="absolute right-1 top-1 rounded-full p-1 text-white" style={{ background: 'rgba(0,0,0,.6)' }}>
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <label className="flex cursor-pointer items-center justify-center gap-2 rounded-lg border-2 border-dashed py-3 text-[12px] font-bold"
+                    style={{ borderColor: 'rgba(0,0,0,.25)', opacity: readingProof ? 0.6 : 1 }}>
+                    <ImagePlus className="h-4 w-4" />
+                    {readingProof ? '…' : t('wallet.screenshotPick')}
+                    <input type="file" accept="image/*" className="sr-only" data-testid="proof-file"
+                      onChange={onProofFile} disabled={readingProof} />
+                  </label>
+                )}
+                <p className="text-[10px] leading-snug text-muted">{t('wallet.screenshotHint')}</p>
+                {proofErr && <p className="text-[11px] font-bold" style={{ color: '#C62839' }}>{proofErr}</p>}
+              </div>
               <div className="flex gap-2">
-                <button onClick={() => setCheckout(false)} className="btn-ghost flex-1 py-2.5 text-sm">{t('common.cancel')}</button>
-                <button onClick={payNow} className="flex-1 rounded-pill py-2.5 text-sm font-extrabold text-white" style={{ background: mStyle }}>{t('wallet.payNow')} ৳{amt}</button>
+                <button onClick={() => { setCheckout(false); resetProof() }} className="btn-ghost flex-1 py-2.5 text-sm">{t('common.cancel')}</button>
+                <button onClick={payNow} disabled={!proof || readingProof} data-testid="pay-now"
+                  className="flex-1 rounded-pill py-2.5 text-sm font-extrabold text-white disabled:opacity-45"
+                  style={{ background: mStyle }}>{t('wallet.payNow')} ৳{amt}</button>
               </div>
               <p className="text-[10px] leading-snug text-muted">{t('wallet.depositNote')}</p>
             </div>

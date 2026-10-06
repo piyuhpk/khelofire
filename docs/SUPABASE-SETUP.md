@@ -47,8 +47,26 @@ additive-only and idempotent (`if not exists`), so re-running is safe.
 | 4 | `supabase/004_payments.sql` | `request_deposit`, `request_withdrawal`, `decide_deposit`, `decide_withdrawal`, `list_pending_requests`, duplicate-ref guard |
 | 5 | `supabase/005_payment_gateways.sql` | gateway_config, payment_orders, `active_gateway()`, `set_gateway_mode()` |
 | 6 | `supabase/006_make_admin.sql` | `create_first_admin()` — run once, see step 4 |
+| 7 | `supabase/007_pending_list_left_join.sql` | `list_pending_requests` left-joins profiles, so a request with no profile row is not hidden |
+| 8 | `supabase/008_money_rpc_grants.sql` | grants on the money RPCs — they were revoked from everyone and granted to no one |
+| 9 | `supabase/009_resign_live_match.sql` | `resign_live_match` — resigning a live match had no server path at all |
+| 10 | `supabase/010_match_modes.sql` | admin-created game modes reach the app (one source of truth for modes) |
+| 11 | `supabase/011_no_engine_no_paid_mode.sql` | the server refuses to offer a paid game with no live engine behind it |
+| 12 | `supabase/012_pending_requests_ordering.sql` | `list_pending_requests` again — it raised on a GROUP BY error and returned nothing to anyone |
+| 13 | `supabase/013_release_orphan_entry_locks.sql` | releases entry locks no match is holding |
+| 14 | `supabase/014_dice_engine.sql` | dice game engine |
+| 15 | `supabase/015_open_tables.sql` | open tables — a player can find a game instead of knowing a code |
+| 16 | `supabase/016_paste_into_supabase_sql_editor.sql` | forward-only rebuild of four functions from 002 and 015 (generated — do not hand-edit) |
+| 17 | `supabase/017_deposit_screenshot.sql` | **the payment screenshot**: `deposits.proof`, the four-argument `request_deposit` that requires it, `has_proof` in the admin queue, `get_deposit_proof` |
 
-Run them in that order — `004` and `005` reference tables created by `schema.sql`.
+Run them in that order — later files reference tables created by `schema.sql`.
+**16 and 17 are the two that are also pasted by hand** when the schema has already
+moved on: both are forward-only (`create or replace`), so they can be run against a
+live database without replaying the migrations before them.
+
+Without 17 the app still works: the deposit request falls back to the old
+three-argument `request_deposit`, and the player is told their screenshot was not
+attached. Everything else about deposits is unchanged.
 
 ## 4. Make yourself admin
 

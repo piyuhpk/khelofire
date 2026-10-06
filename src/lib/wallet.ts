@@ -65,19 +65,63 @@ export async function requestWithdrawal(
 }
 
 /** Ask to deposit. Nothing is credited until an admin approves it. */
+export interface DepositCreated {
+  id: string
+  /**
+   * Whether the screenshot actually made it into the row.
+   *
+   * It is false only when supabase/017_deposit_screenshot.sql has not been run
+   * yet: the four-argument request_deposit does not exist, so the call falls back
+   * to the three-argument one. Deposits keep working in that state - but the
+   * player has been asked for a picture of their payment, handed one over, and
+   * the admin has no way to see it, so the caller is told and says so rather than
+   * reporting a plain success.
+   */
+  proofAttached: boolean
+}
+
+const missingProofOverload = (message: string, code?: string) =>
+  code === 'PGRST202' ||
+  /could not find a function named|has no function|function public\.request_deposit/i.test(message)
+
 export async function requestDeposit(
   amountMinor: number,
   method: string,
   ref: string,
-): Promise<string | null> {
+  proof?: string | null,
+): Promise<DepositCreated | null> {
   if (!hasSupabase || !supabase) return null
+
+  if (proof) {
+    const { data, error } = await supabase.rpc('request_deposit', {
+      p_amount_minor: amountMinor,
+      p_method: method,
+      p_ref: ref,
+      p_proof: proof,
+    })
+    if (!error) return { id: (data as string) ?? '', proofAttached: true }
+    if (!missingProofOverload(error.message, (error as { code?: string }).code)) {
+      throw new Error(error.message)
+    }
+    // 017 has not been applied. Fall through to the old signature so the money
+    // flow stays open instead of turning every deposit into a server error.
+  }
+
   const { data, error } = await supabase.rpc('request_deposit', {
     p_amount_minor: amountMinor,
     p_method: method,
     p_ref: ref,
   })
   if (error) throw new Error(error.message)
-  return (data as string) ?? null
+  return { id: (data as string) ?? '', proofAttached: false }
+}
+
+/** Staff-only: the screenshot a player attached to a deposit request. */
+export async function fetchDepositProof(depositId: string): Promise<string | null> {
+  if (!hasSupabase || !supabase) return null
+  const { data, error } = await supabase.rpc('get_deposit_proof', { p_deposit_id: depositId })
+  if (error) throw new Error(error.message)
+  return (data as string | null) ?? null
 }
 
 /**
@@ -130,6 +174,12 @@ export interface PendingRow {
   ts: string
   ref?: string
   account?: string
+  /**
+   * Present only after supabase/017_deposit_screenshot.sql has been run: whether
+   * this deposit has a payment screenshot waiting. The image itself is not in the
+   * payload - see get_deposit_proof.
+   */
+  has_proof?: boolean
 }
 
 /**

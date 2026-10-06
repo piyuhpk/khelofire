@@ -111,7 +111,16 @@ export interface AdminActivity {
 // against double-crediting a payment when the player gives the transaction id,
 // which the admin then needs in order to actually verify it.
 export interface Withdrawal { id: string; user: string; amountMinor: number; method: string; account: string; status: 'pending' | 'approved' | 'rejected'; ts: number }
-export interface Deposit { id: string; user: string; amountMinor: number; method: string; ref: string; status: 'pending' | 'approved' | 'rejected'; ts: number }
+/**
+ * A deposit request.
+ *
+ * `proof` is the screenshot itself - a data URL. It is filled in on a request
+ * made in this browser (demo mode, or live right after creating it) and left out
+ * for rows that arrive from the server, which send only `hasProof`: the pending
+ * queue is a list, and it is read on every admin tab change, so the image is
+ * fetched by id through get_deposit_proof when the admin actually opens it.
+ */
+export interface Deposit { id: string; user: string; amountMinor: number; method: string; ref: string; status: 'pending' | 'approved' | 'rejected'; ts: number; proof?: string; hasProof?: boolean }
 export interface AdminBanner { id: string; titleEn: string; titleBn: string; url: string; active: boolean }
 export interface BonusConfig { welcomeMinor: number; referralMinor: number; dailyMinor: number; depositPct: number }
 // Manual only, and there is deliberately no `enabled` flag and no `apiKey`.
@@ -210,7 +219,7 @@ interface DemoState {
   removeCategoryImage: (key: keyof CategoryImageConfig) => void
   setGameModeImage: (modeId: string, patch: { backgroundImage?: string; thumbnailImage?: string }) => void
   removeGameModeImage: (modeId: string) => void
-  addMoney: (taka: number, method?: string, ref?: string) => Promise<boolean>
+  addMoney: (taka: number, method?: string, ref?: string, proof?: string | null) => Promise<boolean>
   setDepositStatus: (id: string, status: Deposit['status']) => Promise<void>
   /** staff queue refresh: merge the server's pending rows into the local mirror */
   setPendingRequests: (rows: { deposits: PendingRow[]; withdrawals: PendingRow[] }) => void
@@ -225,6 +234,16 @@ interface DemoState {
    * did nothing.
    */
   reloadPendingRequests: () => Promise<void>
+  /**
+   * The screenshot on a deposit request, fetched on demand.
+   *
+   * Separate from reloadPendingRequests because the pending queue is a list that
+   * the admin's panel reads on every tab change, and a couple of hundred
+   * kilobytes per row would be paid on every one of those reads for a picture
+   * nobody has opened. Returns the local copy when there is one, so a request
+   * made in this browser opens instantly and offline.
+   */
+  getDepositProof: (id: string) => Promise<string | null>
 
   unlockEntry: (minor: number, note: string) => void
   withdraw: (taka: number, method?: string, account?: string) => Promise<boolean>
@@ -474,29 +493,36 @@ export const useStore = create<DemoState>()(
       // Add money = deposit REQUEST. Nothing is credited until an admin approves it.
       // In live mode the row is created by request_deposit() so the amount is
       // validated server-side; the local list is only a mirror for the UI.
-      addMoney: async (taka, method = 'bKash', ref = '') => {
+      addMoney: async (taka, method = 'bKash', ref = '', proof = null) => {
         const amt = toMinor(taka)
         if (amt <= 0) return false
         const txnRef = ref.trim()
+        const shot = proof ?? null
         if (!liveMode) {
           const id = txn()
           const user = get().username
           set((s) => ({
-            deposits: [{ id, user, amountMinor: amt, method, ref: txnRef, status: 'pending', ts: Date.now() }, ...s.deposits],
+            deposits: [{ id, user, amountMinor: amt, method, ref: txnRef, status: 'pending', ts: Date.now(), ...(shot ? { proof: shot } : {}) }, ...s.deposits],
             ledger: [{ id, type: 'deposit', amountMinor: amt, balanceAfter: get().availableMinor, status: 'pending', ts: Date.now(), note: `Deposit request · ${method}` }, ...s.ledger],
           }))
           get().logAdminActivity('deposit_request', 'payments', `${user} · ${method} · ${taka}`)
           return true
         }
         try {
-          const id = await wallet.requestDeposit(amt, method, txnRef)
-          if (!id) return false
+          const created = await wallet.requestDeposit(amt, method, txnRef, shot)
+          if (!created?.id) return false
           const user = get().username
           set((s) => ({
-            deposits: [{ id, user, amountMinor: amt, method, ref: txnRef, status: 'pending', ts: Date.now() }, ...s.deposits],
-            ledger: [{ id, type: 'deposit', amountMinor: amt, balanceAfter: s.availableMinor, status: 'pending', ts: Date.now(), note: 'deposit request' } as Ledger, ...s.ledger],
+            deposits: [{ id: created.id, user, amountMinor: amt, method, ref: txnRef, status: 'pending', ts: Date.now(), ...(shot ? { proof: shot } : {}), ...(created.proofAttached ? { hasProof: true } : {}) }, ...s.deposits],
+            ledger: [{ id: created.id, type: 'deposit', amountMinor: amt, balanceAfter: s.availableMinor, status: 'pending', ts: Date.now(), note: 'deposit request' } as Ledger, ...s.ledger],
           }))
           notify('Deposit request sent', 'ok')
+          // The request exists either way, but the player was asked for proof of
+          // payment and the admin now has none to look at. Saying so here is the
+          // only moment the player can still do something about it.
+          if (shot && !created.proofAttached) {
+            notify('Deposit sent, but your screenshot was not attached - please send it to support', 'err')
+          }
           return true
         } catch (e) {
           notifyError('Deposit request failed', e)
@@ -512,16 +538,25 @@ export const useStore = create<DemoState>()(
       setPendingRequests: ({ deposits, withdrawals }) => {
         const ts = (s: string) => new Date(s).getTime()
         const merge = <T extends { id: string }>(local: T[], rows: PendingRow[], extra: (r: PendingRow) => T): T[] => {
-          const byId = new Map<string, T>(rows.map((r) => [r.id, extra(r)]))
-          // keep anything the server did not send, so an offline request the
-          // player just made does not blink out of their own history
-          for (const l of local) if (!byId.has(l.id)) byId.set(l.id, l)
+          const byId = new Map<string, T>()
+          for (const l of local) byId.set(l.id, l)
+          for (const r of rows) {
+            // Server values win - a request approved on another phone has to show
+            // as approved here - but a local row is spread underneath rather than
+            // replaced, so fields the server's payload does not carry at all
+            // survive. That is `proof`: a screenshot picked in this browser is
+            // only in this browser until the server has been told about it, and
+            // overwriting the row with the server's copy threw it away.
+            const prev = byId.get(r.id)
+            byId.set(r.id, prev ? { ...prev, ...extra(r) } : extra(r))
+          }
           return [...byId.values()]
         }
         set((s) => ({
           deposits: merge(s.deposits, deposits, (r) => ({
             id: r.id, user: r.user, amountMinor: r.amount_minor, method: r.method,
             ref: r.ref ?? '', status: 'pending' as const, ts: ts(r.ts),
+            ...(r.has_proof ? { hasProof: true } : {}),
           })),
           withdrawals: merge(s.withdrawals, withdrawals, (r) => ({
             id: r.id, user: r.user, amountMinor: r.amount_minor, method: r.method,
@@ -533,6 +568,19 @@ export const useStore = create<DemoState>()(
         if (!liveMode) return
         const rows = await wallet.fetchPendingRequests()
         get().setPendingRequests(rows)
+      },
+      getDepositProof: async (id) => {
+        const local = get().deposits.find((d) => d.id === id)
+        if (local?.proof) return local.proof
+        if (!liveMode) return local?.proof ?? null
+        try {
+          return await wallet.fetchDepositProof(id)
+        } catch (e) {
+          // 017 not applied, or this account has no staff role. The admin button
+          // has to say something rather than open an empty frame.
+          notifyError('Could not open the screenshot', e)
+          return null
+        }
       },
 
       setDepositStatus: async (id, status) => {
