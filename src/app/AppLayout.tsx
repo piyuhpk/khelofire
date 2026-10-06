@@ -126,15 +126,18 @@ export function AppLayout() {
   return (
     <div className="app-frame flex flex-col">
       <AppHeader />
-      {/* pb-[env(safe-area-inset-bottom)] rather than pb-2: the scrolling <main>
-          runs to the very bottom of the viewport, so on a phone with a gesture bar
-          or a home row the last row of content sat underneath it. The nav has its
-          own inset padding, but a nav that is pushed partly off-screen cannot show
-          its own padding.
-          pb-24 keeps a full row of content clear of the nav on every page, which
-          is also why the nav stopped disappearing on Wallet: that page is a tall
-          scroll, so it was the one that could scroll its own footer out of reach. */}
-      <main className="flex-1 overflow-y-auto no-scrollbar pb-24 pb-[env(safe-area-inset-bottom)]">
+      {/* The nav is sticky over a document that scrolls, so the last row of content
+          has to clear it. Two Tailwind classes could not do that: `pb-24` and
+          `pb-[env(safe-area-inset-bottom)]` both set padding-bottom, and only one
+          can win - the env() one, which is 0px on most phones. So the clearance that
+          was meant to be 96px was in practice 0 to 34px, and the bottom row sat
+          under the nav, which is what was reported.
+
+          One value that is both: the nav's height, plus whatever the gesture bar
+          takes below it. The nav has its own inset padding, but a nav pushed
+          partly off-screen cannot show its own padding. */}
+      <main className="flex-1 overflow-y-auto no-scrollbar"
+        style={{ paddingBottom: 'calc(6rem + env(safe-area-inset-bottom, 0px))' }}>
         <Outlet />
       </main>
       <BottomNav />
