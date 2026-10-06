@@ -81,6 +81,12 @@ document.documentElement.setAttribute('data-theme', theme)
 // restore a live Supabase session if the project is wired (no-op in demo mode)
 bootstrapAuth()
 
+// The phone's back button. Nothing had ever listened to it, so Android's default
+// (history.back(), and nothing at all when there is no history) was what the player
+// got: no-op at home, and a self-rearming dialog inside a game. Native only - see
+// lib/backButton.ts for the order the presses are handled in.
+import('./lib/backButton').then((m) => m.initBackButton(() => { void router.navigate('/') })).catch(() => {})
+
 
 // live cross-device announcements (Supabase Realtime broadcast; no-op without keys)
 import('./lib/realtime').then((m) => m.initRealtimeAnnouncements()).catch(() => {})

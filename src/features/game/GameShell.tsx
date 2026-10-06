@@ -5,6 +5,7 @@ import { useT } from '../../i18n'
 import { Modal, useToast } from '../../ui/components'
 import { fmt } from '../../lib/money'
 import { useVoiceRoom, hasTurn } from '../../lib/realtime'
+import { isNativeApp } from '../../lib/auth'
 import type { Outcome } from '../../lib/store'
 
 const iconBtn = 'grid h-9 w-9 place-items-center rounded-full text-white/90 active:scale-90 transition'
@@ -124,26 +125,59 @@ export function ExitModal({ onLeave }: { onLeave: () => void }) {
   const t = useT()
   const [open, setOpen] = useState(false)
   useEffect(() => {
-    const h = () => setOpen(true)
-    window.addEventListener('game-exit', h)
-    // browser back guard
-    history.pushState(null, '', location.href)
-    const pop = () => { setOpen(true); history.pushState(null, '', location.href) }
+    // one record of open-ness for this effect's closure, so the browser-back guard
+    // below can tell "open the dialog" from "close it" without re-subscribing
+    let openLocal = false
+    const set = (v: boolean) => { openLocal = v; setOpen(v) }
+
+    const show = () => set(true)
+    // Android's back button comes here instead of navigating; see lib/backButton.ts
+    const dismiss = () => set(false)
+    window.addEventListener('game-exit', show)
+    window.addEventListener('back-dismiss', dismiss)
+
+    // Browser back guard, and only on the web. On Android the backButton listener
+    // owns the press, and pushing history entries under it would only get in its way.
+    let armed = false
+    const arm = () => { history.pushState(null, '', location.href); armed = true }
+    const pop = () => {
+      // Only this guard's own entries count. On Android the press never arrives
+      // here at all - backButton.ts owns it - so anything that does is a route
+      // change, and opening a leave dialog over an unrelated screen would be wrong.
+      if (!armed) return
+      armed = false
+      // toggle, and re-arm: one entry is consumed and one is pushed, so the stack
+      // holds at one extra entry for the whole match instead of growing with every
+      // press. Opening but never closing - what this did - is why the button looked
+      // dead: it re-opened a dialog that was already open.
+      set(!openLocal)
+      arm()
+    }
+    if (!isNativeApp()) arm()
     window.addEventListener('popstate', pop)
-    return () => { window.removeEventListener('game-exit', h); window.removeEventListener('popstate', pop) }
+    return () => {
+      window.removeEventListener('game-exit', show)
+      window.removeEventListener('back-dismiss', dismiss)
+      window.removeEventListener('popstate', pop)
+    }
   }, [])
   return (
-    <Modal open={open} onClose={() => setOpen(false)}>
-      <div className="mb-3 grid h-14 w-14 place-items-center rounded-2xl text-danger" style={{ background: 'rgba(255,92,105,.14)' }}>
-        <AlertTriangle className="h-7 w-7" strokeWidth={2} />
-      </div>
-      <h3 className="font-display text-lg font-extrabold mb-1">{t('exit.title')}</h3>
-      <p className="text-sm text-muted mb-4">{t('exit.warn')}</p>
-      <div className="flex gap-2">
-        <button className="btn-primary flex-1" onClick={() => setOpen(false)}>{t('exit.stay')}</button>
-        <button className="btn-navy flex-1" onClick={() => { setOpen(false); onLeave() }}>{t('exit.leave')}</button>
-      </div>
-    </Modal>
+    // The marker lib/backButton.ts looks for. Modal renders inline (no portal), so
+    // this wrapper is on the page for as long as the dialog is, and the back button
+    // can tell a dialog from no dialog without this module knowing anything about it.
+    <div data-back-guard={open ? 'open' : undefined}>
+      <Modal open={open} onClose={() => setOpen(false)}>
+        <div className="mb-3 grid h-14 w-14 place-items-center rounded-2xl text-danger" style={{ background: 'rgba(255,92,105,.14)' }}>
+          <AlertTriangle className="h-7 w-7" strokeWidth={2} />
+        </div>
+        <h3 className="font-display text-lg font-extrabold mb-1">{t('exit.title')}</h3>
+        <p className="text-sm text-muted mb-4">{t('exit.warn')}</p>
+        <div className="flex gap-2">
+          <button className="btn-primary flex-1" onClick={() => setOpen(false)}>{t('exit.stay')}</button>
+          <button className="btn-navy flex-1" onClick={() => { setOpen(false); onLeave() }}>{t('exit.leave')}</button>
+        </div>
+      </Modal>
+    </div>
   )
 }
 
