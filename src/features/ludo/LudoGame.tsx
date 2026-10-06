@@ -3,7 +3,8 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useT, useI18n } from '../../i18n'
 import { modeById } from '../../lib/catalog'
 import { useStore, type Outcome } from '../../lib/store'
-import { readState, sendAction, subscribeMatch, settleMatch, resignLiveMatch, LiveError, type LiveGameState } from '../../lib/live'
+import { readState, sendAction, subscribeMatch, settleMatch, resignLiveMatch, type LiveGameState } from '../../lib/live'
+import { serverErrMsg } from '../../lib/serverErrors'
 import { GameHeader, VoiceButton, ExitModal, ResultModal } from '../game/GameShell'
 import { MatchChat } from '../game/MatchChat'
 import { useToast } from '../../ui/components'
@@ -171,7 +172,7 @@ export default function LudoGame() {
       // why, and let the player try again.
       settled.current = false
       setResigning(false)
-      toast(liveErr(e, lang === 'bn'), 'err')
+      toast(serverErrMsg(e, lang), 'err')
     }
   }
 
@@ -267,7 +268,7 @@ export default function LudoGame() {
       // server never granted (gone on next reload) and settle_match was
       // effectively never called by anything except the broken resign button.
       void settleMatch(matchId, outcome)
-        .catch((e) => toast(e instanceof Error ? e.message : 'Settlement failed', 'err'))
+        .catch((e) => toast(`${t('live.err.settleFailed')}: ${serverErrMsg(e, lang)}`, 'err'))
         .finally(() => setResult(outcome))
       return
     }
@@ -449,7 +450,7 @@ export default function LudoGame() {
       adopt(v)
       return v
     } catch (e) {
-      toast(liveErr(e, lang === 'bn'), 'err')
+      toast(serverErrMsg(e, lang), 'err')
       return null
     } finally {
       liveBusy.current = false
@@ -648,14 +649,4 @@ const roll = () => {
       <ResultModal outcome={result} deltaMinor={result === 'win' ? m!.prizeMinor - m!.entryMinor : -m!.entryMinor} moves={homeCount(yourSeat)} />
     </div>
   )
-}
-
-/** A live failure the player can do something about, in their language. */
-function liveErr(e: unknown, bn: boolean): string {
-  const msg = e instanceof LiveError ? e.message : ''
-  if (/not seated/i.test(msg)) return bn ? 'আপনি এই ম্যাচে বসা নেই' : 'You are not seated in this match'
-  if (/not signed in|Sign in again/i.test(msg)) return bn ? 'আবার লগইন করুন' : 'Please sign in again'
-  if (/deadline|expired|too slow/i.test(msg)) return bn ? 'সময় শেষ — অপোনেন্টের চাল' : 'Out of time — opponent plays on'
-  if (/not your turn/i.test(msg)) return bn ? 'এখন আপনার চাল নয়' : 'Not your turn'
-  return msg || (bn ? 'কিছু গলতি হয়েছে' : 'Something went wrong')
 }

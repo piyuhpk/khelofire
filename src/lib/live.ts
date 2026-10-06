@@ -92,6 +92,9 @@ export class LiveError extends Error {
   }
 }
 
+/** The server's refusal when this player already holds a seat at the table. */
+const ALREADY_SEATED = /already (at|in) this table/i
+
 /** A readable code. Not a secret - it is a room number, and it is shown on purpose. */
 export function randomCode(): string {
   // no 0/O/1/I: these get read aloud and typed on a phone keyboard
@@ -211,6 +214,19 @@ export async function touchTable(matchId: string): Promise<void> {
 export async function joinOpenTable(matchId: string): Promise<LiveMatch> {
   requireSupabase()
   const { data, error } = await supabase!.rpc('join_live_match_by_id', { p_match_id: matchId })
+
+  // Already seated. This happens whenever the previous join succeeded but its answer
+  // never came back - the response was dropped, the app was closed, the phone lost
+  // the network at the wrong moment. The seat row is in the database either way, and
+  // the server's only way to say so is to refuse. Refusing was the wrong answer: the
+  // player taps the same table again and gets the same red error every time, with a
+  // seat they are already holding. Read the match and put them in it, which is what
+  // they asked for. Same recovery createMatch already does for "you already have a
+  // table open".
+  if (error && ALREADY_SEATED.test(error.message)) {
+    const mine = await fetchMatch(matchId)
+    if (mine) return mine
+  }
   if (error) throw new LiveError(error.message, 'join_failed')
 
   const row = (data ?? {}) as { match_id: string }
@@ -226,6 +242,19 @@ export async function joinMatch(code: string): Promise<LiveMatch> {
   if (!isValidCode(room)) throw new LiveError('Room code must be 5-8 letters or digits', 'bad_code')
 
   const { data, error } = await supabase!.rpc('join_live_match', { p_code: room })
+
+  // Same seated recovery as joinOpenTable: a seat taken once is still a seat, and the
+  // code join is the path a player reaches by typing the code their friend sent them.
+  // Found by code rather than by owner, because the code is the one piece of this
+  // attempt that identifies the table - the refusal itself does not carry an id.
+  if (error && ALREADY_SEATED.test(error.message)) {
+    const { data: mine } = await supabase!
+      .from('live_matches').select('id').eq('code', room).maybeSingle()
+    if (mine) {
+      const full = await fetchMatch(mine.id)
+      if (full) return full
+    }
+  }
   if (error) throw new LiveError(error.message, 'join_failed')
 
   // join_live_match only hands back the id and the seat it gave you. Re-read the

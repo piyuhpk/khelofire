@@ -1,4 +1,4 @@
-﻿export const translations = {
+export const translations = {
   bn: {
     // nav
     'nav.home': 'গেম', 'nav.matches': 'আমার ম্যাচ', 'nav.wallet': 'টাকা', 'nav.profile': 'প্রোফাইল',
@@ -78,6 +78,44 @@
     'guide.guti': '১. আপনার গুটি ট্যাপ করুন যেটি চলতে চান\n২. সরাসরি সংলগ্ন খালি ঘরে চলে যান\n৩. 对手ের গুটি কেটে ফেলতে মারা গুটির পাশের খালি ঘরে যান\n৪. একসাথে একাধিক কেটা করা যাবে (চেইন ক্যাপচার)\n৫. কেটা বাধ্যতামূলক - কেটা থাকলে অন্য চলে যাবেন না\n৬. 对手ের সব গুটি কেটে ফেললে বা তাঁর কোনো চলে না থাকলে জিতবেন',
     'guide.dice': '১. "রোল" বোতাম ট্যাপ করুন ছক্কা ফেলতে\n২. আপনার এবং বটের ছক্কা ব GSE ব arī করবে\n৩. বেশি নাম্বার পেলে সেই রাউন্ড আপনি জিতবেন\n৪. ৫ রাউন্ড খেলা হবে (বেস্ট অফ ৫)\n৫. অধিক রাউন্ড جیتেওয়া খেলোয়াড় ম্যাচ জিতবে\n৬. সমান থাকলে ড্র হবে',
     'guide.close': 'বন্ধ করুন',
+    // Failures from the live tables and from the database itself.
+    //
+    // Every string below is either one of the `raise exception` messages in
+    // 016_paste_into_supabase_sql_editor.sql, or PostgREST's own text when the
+    // function it was asked for does not exist. They used to be shown verbatim in a
+    // red toast, so a player whose opponent was a fraction of a second quicker read
+    // "table is full" and one who had never run the setup read "Could not find the
+    // function public.join_live_match_by_id(p_match_id) in the schema cache" - an
+    // error only the person maintaining the database can act on.
+    'live.err.signedOut': 'আবার লগইন করুন',
+    'live.err.full': 'ওই টেবিলটি ভরে গেছে — অন্য টেবিলে যোগ দিন',
+    'live.err.noCodeTable': 'এই কোডে কোনো খোলা টেবিল নেই',
+    'live.err.closed': 'ওই টেবিলটি বন্ধ হয়ে গেছে',
+    'live.err.started': 'ম্যাচটি আগেই শুরু হয়ে গেছে',
+    'live.err.seated': 'আপনি ইতিমধ্যে ওই টেবিলেই আছেন',
+    'live.err.ownTable': 'এটি আপনার নিজের টেবিল',
+    'live.err.needPlayers': 'আরও খেলোয়াড়ের অপেক্ষা করুন',
+    'live.err.hostOnly': 'শুধুমাত্র হোস্ট এটি করতে পারবেন',
+    'live.err.codeTaken': 'এই কোডটি ব্যবহৃত হয়ে গেছে — অন্য কোড নিন',
+    'live.err.badCode': 'কোড ৫–৮টি অক্ষর বা সংখ্যার হতে হবে',
+    'live.err.modeUnavailable': 'এই মোডটি উপলব্ধ নয়',
+    'live.err.setup': 'লাইভ টেবিল এখনো চালু করা হয়নি — অ্যাডমিন সেটআপ চালান',
+    'live.err.network': 'ইন্টারনেট সংযোগ দেখুন, তারপর আবার চেষ্টা করুন',
+    'live.err.notYourTurn': 'এখন আপনার চাল নয়',
+    'live.err.timeUp': 'সময় শেষ — প্রতিপক্ষ খেলছে',
+    'live.err.notSeated': 'আপনি এই ম্যাচে বসা নেই',
+    // money, and the deposit/withdrawal queue - see 004_payments.sql
+    'live.err.tooManyDeposits': '৫টি জমার অনুরোধ ইতিমধ্যে পাঠানো আছে — একটির অনুমোদনের অপেক্ষা করুন',
+    'live.err.tooManyWithdrawals': '৩টি উত্তোলনের অনুরোধ ইতিমধ্যে পাঠানো আছে — একটির অনুমোদনের অপেক্ষা করুন',
+    'live.err.alreadyDecided': 'এই অনুরোধটি আগেই নিষ্পত্তি হয়ে গেছে',
+    'live.err.refUsed': 'এই ট্রানজেকশন আইডি আগেই ব্যবহৃত হয়ে গেছে — প্রতিটি পেমেন্ট একবারই জমা যায়',
+    'live.err.insufficient': 'পর্যাপ্ত ব্যালেন্স নেই',
+    'live.err.amountRange': 'পরিমাণ ১ থেকে ১০০০০ টাকার মধ্যে হতে হবে',
+    'live.err.needAccount': 'টাকা পাবেন যে অ্যাকাউন্টে, সেটি দিন',
+    'live.err.notFound': 'অনুরোধটি খুঁজে পাওয়া যায়নি', 'live.err.settleFailed': 'ম্যাচের হিসাব মেলানো যায়নি',
+    'admin.pwFailed': 'পাসওয়ার্ড পরিবর্তন করা যায়নি', 'admin.emailFailed': 'ইমেইল পরিবর্তন করা যায়নি',
+    'admin.gatewayFailed': 'পেমেন্ট গেটওয়ে সেটিংস সেভ করা যায়নি', 'admin.modeFailed': 'মোড সেভ করা যায়নি', 'admin.modeChangeFailed': 'মোড পরিবর্তন করা যায়নি',
+    'live.err.generic': 'কিছু ভুল হয়েছে — আবার চেষ্টা করুন',
   },
   en: {
     'nav.home': 'Games', 'nav.matches': 'My Matches', 'nav.wallet': 'Wallet', 'nav.profile': 'Profile',
@@ -146,6 +184,36 @@
     'guide.guti': '1. Tap your piece to select it\n2. Move to adjacent empty spot\n3. Capture by jumping over enemy to empty spot beyond\n4. Chain captures allowed (multiple jumps)\n5. Capture is mandatory when available\n6. Capture all enemy pieces or block them to win',
     'guide.dice': '1. Tap "Roll" to roll the dice\n2. Your die vs bot\'s die - higher wins the round\n3. Best of 5 rounds wins the match\n4. Tie rounds don\'t count\n5. Most round wins = match winner',
     'guide.close': 'Close',
+    // See the bn copy above for why these exist.
+    'live.err.signedOut': 'Please sign in again',
+    'live.err.full': 'That table just filled up — join another one',
+    'live.err.noCodeTable': 'No open table with that code',
+    'live.err.closed': 'That table is no longer open',
+    'live.err.started': 'That match has already started',
+    'live.err.seated': 'You are already at that table',
+    'live.err.ownTable': 'That is your own table',
+    'live.err.needPlayers': 'Waiting for more players to join',
+    'live.err.hostOnly': 'Only the host can do that',
+    'live.err.codeTaken': 'That room code is already in use — pick another',
+    'live.err.badCode': 'Code must be 5-8 letters or digits',
+    'live.err.modeUnavailable': 'That mode is not available',
+    'live.err.setup': 'Live tables are not set up yet — run the admin setup',
+    'live.err.network': 'Check your connection and try again',
+    'live.err.notYourTurn': 'Not your turn',
+    'live.err.timeUp': 'Out of time — opponent plays on',
+    'live.err.notSeated': 'You are not seated in this match',
+    // money, and the deposit/withdrawal queue - see 004_payments.sql
+    'live.err.tooManyDeposits': 'You already have 5 deposit requests waiting — one must be reviewed first',
+    'live.err.tooManyWithdrawals': 'You already have 3 withdrawal requests waiting — one must be reviewed first',
+    'live.err.alreadyDecided': 'That request has already been decided',
+    'live.err.refUsed': 'This transaction ID was already used — each payment can only be deposited once',
+    'live.err.insufficient': 'Not enough balance',
+    'live.err.amountRange': 'Amount must be between ৳1 and ৳10000',
+    'live.err.needAccount': 'Enter the account to receive the money',
+    'live.err.notFound': 'That request could not be found', 'live.err.settleFailed': 'The match balance could not be settled',
+    'admin.pwFailed': 'Could not update the password', 'admin.emailFailed': 'Could not change the email',
+    'admin.gatewayFailed': 'Could not save the gateway settings', 'admin.modeFailed': 'Could not save the mode', 'admin.modeChangeFailed': 'Could not change the mode',
+    'live.err.generic': 'Something went wrong — try again',
   },
 } as const
 

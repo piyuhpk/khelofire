@@ -16,6 +16,7 @@ import {
   isValidCode, readState, listOpenTables, touchTable, joinOpenTable, LiveError, type LiveMatch, type OpenTable,
 } from '../../lib/live'
 import { modeById } from '../../lib/catalog'
+import { serverErrMsg } from '../../lib/serverErrors'
 
 /** minor units -> the short money string the lobby uses everywhere else */
 const fmt = (minor: number): string => (minor / 100).toFixed(0)
@@ -106,7 +107,7 @@ export default function LiveTables() {
         'ok',
       )
     } catch (e) {
-      toast(errText(e, bn), 'err')
+      toast(serverErrMsg(e, lang), 'err')
     } finally { setBusy(null) }
   }
 
@@ -119,7 +120,7 @@ export default function LiveTables() {
       setTable(m)
       toast(bn ? 'টেবিলে যোগ দিলেন' : 'Joined the table', 'ok')
     } catch (e) {
-      toast(errText(e, bn), 'err')
+      toast(serverErrMsg(e, lang), 'err')
     } finally { setBusy(null) }
   }
 
@@ -139,7 +140,7 @@ export default function LiveTables() {
       setTable(m)
       toast(bn ? 'টেবিলে যোগ দিলেন' : 'Joined the table', 'ok')
     } catch (e) {
-      toast(errText(e, bn), 'err')
+      toast(serverErrMsg(e, lang), 'err')
       // the list is a snapshot; drop the row that just failed so it cannot be tapped twice
       setTables((rows) => rows.filter((r) => r.match_id !== t.match_id))
     } finally { setBusy(null) }
@@ -181,7 +182,7 @@ export default function LiveTables() {
       if (fresh) setTable(fresh)
       enter(fresh ?? table)
     } catch (e) {
-      toast(errText(e, bn), 'err')
+      toast(serverErrMsg(e, lang), 'err')
     } finally { setStarting(false) }
   }
 
@@ -351,9 +352,4 @@ export default function LiveTables() {
 function pickMode(): string {
   const real = ['ludo_quick', 'ludo_classic', 'ludo_4p'].find((id) => modeById(id))
   return real ?? 'ludo_quick'
-}
-
-function errText(e: unknown, bn: boolean): string {
-  if (e instanceof LiveError) return e.message
-  return bn ? 'কিছু গলতি হয়েছে' : 'Something went wrong'
 }

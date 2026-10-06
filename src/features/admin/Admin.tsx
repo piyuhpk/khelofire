@@ -8,6 +8,7 @@ import { GATEWAYS, isUsable } from '../../lib/payments/providers'
 import { useStore, type AdminUser, type CategoryImageConfig, type AdminRole, type AdminActivity, type AdminSettings, fileToBase64, validateImageFile } from '../../lib/store'
 import { supabase, hasSupabase } from '../../lib/supabase'
 import { useT, useI18n } from '../../i18n'
+import { serverErrMsg } from '../../lib/serverErrors'
 import { useToast, Sheet } from '../../ui/components'
 import { changePassword, changeEmail, currentEmail } from '../../lib/auth'
 
@@ -123,7 +124,7 @@ export default function Admin() {
       setCurPw(''); setNewPw('')
       toast('Password updated', 'ok')
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not update the password', 'err')
+      toast(`${t('admin.pwFailed')}: ${serverErrMsg(e, lang)}`, 'err')
     } finally { setCredBusy(false) }
   }
 
@@ -134,7 +135,7 @@ export default function Admin() {
       toast('Confirmation sent - check the new inbox', 'ok')
       setNewEmail('')
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not change the email', 'err')
+      toast(`${t('admin.emailFailed')}: ${serverErrMsg(e, lang)}`, 'err')
     } finally { setCredBusy(false) }
   }
 
@@ -172,11 +173,11 @@ export default function Admin() {
         p_merchant_id: '',
         p_note: note,
       })
-      if (error) { toast(error.message, 'err'); return }
+      if (error) { toast(`${t('admin.gatewayFailed')}: ${serverErrMsg(error, lang)}`, 'err'); return }
       await refreshLiveGateway()
       toast(mode === 'manual' ? 'Deposits are manual' : `${provider} is live`, 'ok')
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not change the mode', 'err')
+      toast(`${t('admin.modeChangeFailed')}: ${serverErrMsg(e, lang)}`, 'err')
     } finally { setGwBusy(null) }
   }
   const site = useStore((s) => s.siteConfig)
@@ -294,7 +295,7 @@ export default function Admin() {
       setModeForm(null)
       toast('Mode saved — it is live for players now', 'ok')
     } catch (e) {
-      toast(e instanceof Error ? e.message : 'Could not save the mode', 'err')
+      toast(`${t('admin.modeFailed')}: ${serverErrMsg(e, lang)}`, 'err')
     } finally { setModeBusy(false) }
   }
   const [modeBgUrl, setModeBgUrl] = useState('')
