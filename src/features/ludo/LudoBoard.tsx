@@ -225,6 +225,16 @@ export function LudoBoard({ state, legal, onToken, youSeat = 0 }: { state: LudoS
                   width: `${w}%`, height: `${h}%`,
                   transform: `translate(-50%, ${ty})`,
                   background: 'transparent', border: 'none', padding: 0,
+                  // The piece travels to its new square instead of teleporting to it.
+                  // In a real match the board is adopted from the server in one go, so
+                  // without this the opponent's pawn was in the old square on one frame
+                  // and the new one on the next - the move was never on screen at all,
+                  // only its result. Keys are stable per pawn, so this runs on a move
+                  // and on nothing else; a re-poll of an unchanged board has the same
+                  // values and so animates nothing, and the first paint has no previous
+                  // value to move from.
+                  transition:
+                    'left 380ms cubic-bezier(.22,.7,.3,1), top 380ms cubic-bezier(.22,.7,.3,1), width 380ms ease, height 380ms ease, transform 380ms ease',
                 }}
                 aria-label={`token ${p}-${i}`}
               >
